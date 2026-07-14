@@ -7,6 +7,7 @@ type SendInput = {
   isBot: boolean;
   typing?: boolean;
   typingMs?: number;
+  emojiMap?: Record<string, { id: string; animated: boolean }>;
 };
 
 // Rotating pool of realistic desktop client fingerprints (user tokens only).
@@ -49,6 +50,17 @@ export const sendDiscordMessage = createServerFn({ method: "POST" })
     return data;
   })
   .handler(async ({ data }) => {
+    // Resolve :name: tokens to Discord custom emoji markup <:name:id> / <a:name:id>.
+    // Skips tokens inside code blocks / inline code to avoid mangling snippets.
+    let content = data.message;
+    if (data.emojiMap && Object.keys(data.emojiMap).length > 0) {
+      content = content.replace(/:([a-zA-Z0-9_]{2,32}):/g, (m, name) => {
+        const e = data.emojiMap![name];
+        if (!e) return m;
+        return `<${e.animated ? "a" : ""}:${name}:${e.id}>`;
+      });
+    }
+
     const auth = data.isBot ? `Bot ${data.token}` : data.token;
     const headers: Record<string, string> = {
       Authorization: auth,
@@ -94,7 +106,7 @@ export const sendDiscordMessage = createServerFn({ method: "POST" })
       }
 
       const body: Record<string, unknown> = {
-        content: data.message,
+        content,
         tts: false,
         flags: 0,
       };
