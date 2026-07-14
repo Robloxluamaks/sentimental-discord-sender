@@ -284,15 +284,34 @@ function Index() {
             <Panel
               label={`02 // targets [${targets.length}]`}
               action={
-                <button
-                  type="button"
-                  onClick={addTarget}
-                  className="rounded-sm border border-primary/40 bg-primary/10 px-3 py-1 font-mono text-[10px] uppercase tracking-wider text-primary transition-colors hover:bg-primary/20"
-                >
-                  + add target
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={onLoadEmojis}
+                    disabled={emojisLoading}
+                    className="rounded-sm border border-accent/40 bg-accent/10 px-3 py-1 font-mono text-[10px] uppercase tracking-wider text-accent transition-colors hover:bg-accent/20 disabled:opacity-50"
+                    title="Fetch custom emojis from all your servers (Nitro needed for cross-server use with a user token)"
+                  >
+                    {emojisLoading
+                      ? "⇣ scanning..."
+                      : Object.keys(emojiMap).length > 0
+                        ? `☺ ${Object.keys(emojiMap).length} emoji`
+                        : "⇣ load emoji"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={addTarget}
+                    className="rounded-sm border border-primary/40 bg-primary/10 px-3 py-1 font-mono text-[10px] uppercase tracking-wider text-primary transition-colors hover:bg-primary/20"
+                  >
+                    + add target
+                  </button>
+                </div>
               }
             >
+              <p className="mb-3 font-mono text-[10px] leading-relaxed text-muted-foreground">
+                use <span className="text-accent">:emoji_name:</span> in a payload — after loading, custom emojis
+                are auto-resolved to <span className="text-accent">&lt;:name:id&gt;</span>.
+              </p>
               <div className="space-y-3">
                 {targets.map((t, i) => (
                   <div
@@ -347,6 +366,28 @@ function Index() {
                 <Toggle checked={typing} onChange={setTyping} label="typing indicator" />
                 <Toggle checked={humanTyping} onChange={setHumanTyping} label="human-typing time" />
               </div>
+            </Panel>
+
+            <Panel label="04 // persistence">
+              <div className="grid grid-cols-2 gap-3">
+                <Toggle checked={loop} onChange={setLoop} label="loop forever" />
+                <div>
+                  <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                    loop pause (ms)
+                  </label>
+                  <input
+                    type="number"
+                    value={loopDelay}
+                    onChange={(e) => setLoopDelay(Number(e.target.value))}
+                    disabled={!loop}
+                    className="w-full rounded-sm border border-border bg-input px-2 py-1.5 font-mono text-xs text-foreground outline-none focus:border-primary disabled:opacity-40"
+                  />
+                </div>
+              </div>
+              <p className="mt-3 font-mono text-[10px] leading-relaxed text-muted-foreground">
+                loop keeps the campaign running until you hit <span className="text-destructive">abort</span>.
+                keep this tab open — closing it stops the loop.
+              </p>
             </Panel>
 
             <div className="flex gap-2">
