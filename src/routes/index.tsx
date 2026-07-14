@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
-import { sendDiscordMessage } from "@/lib/discord.functions";
+import { sendDiscordMessage, fetchEmojiMap, type EmojiMap } from "@/lib/discord.functions";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -47,6 +47,7 @@ function humanTypingMs(text: string) {
 
 function Index() {
   const send = useServerFn(sendDiscordMessage);
+  const loadEmojis = useServerFn(fetchEmojiMap);
   const [token, setToken] = useState("");
   const [isBot, setIsBot] = useState(true);
   const [targets, setTargets] = useState<Target[]>([newTarget()]);
@@ -61,6 +62,10 @@ function Index() {
   const [longBreakEvery, setLongBreakEvery] = useState(8);
   const [longBreakMs, setLongBreakMs] = useState(120000);
   const [skipChance, setSkipChance] = useState(0);
+  const [loop, setLoop] = useState(false);
+  const [loopDelay, setLoopDelay] = useState(600000);
+  const [emojiMap, setEmojiMap] = useState<EmojiMap>({});
+  const [emojisLoading, setEmojisLoading] = useState(false);
   const [running, setRunning] = useState(false);
   const [stopFlag, setStopFlag] = useState(false);
   const [log, setLog] = useState<string[]>([]);
@@ -90,6 +95,28 @@ function Index() {
   const removeTarget = (id: string) =>
     setTargets((ts) => (ts.length > 1 ? ts.filter((t) => t.id !== id) : ts));
 
+  const onLoadEmojis = async () => {
+    if (!token.trim()) {
+      append("✗ TOKEN REQUIRED to fetch emojis");
+      return;
+    }
+    setEmojisLoading(true);
+    append("⇣ scanning guilds for custom emojis...");
+    try {
+      const res = await loadEmojis({ data: { token, isBot } });
+      if (res.ok) {
+        setEmojiMap(res.map);
+        append(`✓ loaded ${res.emojiCount} emoji(s) from ${res.guildCount} guild(s)`);
+      } else {
+        append(`✗ emoji scan → ${res.status}: ${res.error.slice(0, 80)}`);
+      }
+    } catch (err) {
+      append(`✗ ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setEmojisLoading(false);
+    }
+  };
+
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (running) return;
@@ -109,10 +136,14 @@ function Index() {
     setRunning(true);
     setStopFlag(false);
     setStats({ sent: 0, failed: 0 });
-    append(`▶ INIT · ${valid.length} target(s) × ${rounds} round(s)`);
+    append(`▶ INIT · ${valid.length} target(s) × ${rounds} round(s)${loop ? " · LOOP" : ""}`);
     let sentCounter = 0;
     try {
-      outer: for (let r = 0; r < rounds; r++) {
+      let cycle = 0;
+      cycleLoop: while (true) {
+        cycle++;
+        if (loop) append(`══ CYCLE ${cycle} ══`);
+        outer: for (let r = 0; r < rounds; r++) {
         const order = shuffle ? shuffled(valid) : valid;
         append(`── ROUND ${r + 1}/${rounds} ──`);
         for (let i = 0; i < order.length; i++) {
@@ -138,6 +169,7 @@ function Index() {
                 isBot,
                 typing,
                 typingMs: tMs,
+                emojiMap: Object.keys(emojiMap).length ? emojiMap : undefined,
               },
             });
             if (res.ok) {
@@ -153,7 +185,8 @@ function Index() {
                 await wait(backoff);
               } else if (res.status === 401 || res.status === 403) {
                 append("■ ABORT · token invalid or forbidden");
-                break outer;
+                setStopFlag(true);
+                break cycleLoop;
               }
             }
           } catch (err) {
@@ -183,8 +216,15 @@ function Index() {
           append(`⏱ ROUND PAUSE · ${(w / 1000).toFixed(1)}s`);
           await wait(w);
         }
+        }
+        if (stopFlag) break cycleLoop;
+        if (!loop) break cycleLoop;
+        const cw = jitter(loopDelay, 25);
+        append(`♻ LOOP PAUSE · ${(cw / 1000).toFixed(0)}s`);
+        await wait(cw);
+        if (stopFlag) break cycleLoop;
       }
-      append("■ CAMPAIGN COMPLETE");
+      append(loop ? "■ LOOP STOPPED" : "■ CAMPAIGN COMPLETE");
     } finally {
       setRunning(false);
       setStopFlag(false);
