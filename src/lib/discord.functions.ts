@@ -131,3 +131,45 @@ export const sendDiscordMessage = createServerFn({ method: "POST" })
       return { ok: false as const, status: 0, error: err instanceof Error ? err.message : String(err) };
     }
   });
+
+type EmojiFetchInput = { token: string; isBot: boolean };
+export type EmojiMap = Record<string, { id: string; animated: boolean; guild?: string }>;
+
+// Pulls all custom emojis from every guild the token has access to.
+// Requires Nitro to use cross-guild emojis when sending with a user token.
+export const fetchEmojiMap = createServerFn({ method: "POST" })
+  .inputValidator((data: EmojiFetchInput) => {
+    if (!data.token) throw new Error("Missing token");
+    return data;
+  })
+  .handler(async ({ data }) => {
+    const auth = data.isBot ? `Bot ${data.token}` : data.token;
+    const headers: Record<string, string> = {
+      Authorization: auth,
+      "User-Agent": data.isBot
+        ? "DiscordBot (https://lovable.dev, 1.0)"
+        : "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 discord/1.0.9042 Chrome/124.0.6367.243 Electron/30.2.0 Safari/537.36",
+    };
+
+    const gr = await fetch("https://discord.com/api/v10/users/@me/guilds", { headers });
+    if (!gr.ok) {
+      return { ok: false as const, status: gr.status, error: (await gr.text()).slice(0, 300) };
+    }
+    const guilds = (await gr.json()) as Array<{ id: string; name: string }>;
+    const map: EmojiMap = {};
+    // Sequential with tiny gaps to avoid rate limits.
+    for (const g of guilds) {
+      const er = await fetch(`https://discord.com/api/v10/guilds/${g.id}/emojis`, { headers });
+      if (!er.ok) {
+        await new Promise((r) => setTimeout(r, 250));
+        continue;
+      }
+      const emojis = (await er.json()) as Array<{ id: string; name: string; animated: boolean }>;
+      for (const e of emojis) {
+        if (!e.id || !e.name) continue;
+        if (!map[e.name]) map[e.name] = { id: e.id, animated: !!e.animated, guild: g.name };
+      }
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    return { ok: true as const, map, guildCount: guilds.length, emojiCount: Object.keys(map).length };
+  });
