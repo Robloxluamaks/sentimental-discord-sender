@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
-import { sendDiscordMessage } from "@/lib/discord.functions";
+import { sendDiscordMessage, fetchEmojiMap, type EmojiMap } from "@/lib/discord.functions";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -47,6 +47,7 @@ function humanTypingMs(text: string) {
 
 function Index() {
   const send = useServerFn(sendDiscordMessage);
+  const loadEmojis = useServerFn(fetchEmojiMap);
   const [token, setToken] = useState("");
   const [isBot, setIsBot] = useState(true);
   const [targets, setTargets] = useState<Target[]>([newTarget()]);
@@ -61,6 +62,10 @@ function Index() {
   const [longBreakEvery, setLongBreakEvery] = useState(8);
   const [longBreakMs, setLongBreakMs] = useState(120000);
   const [skipChance, setSkipChance] = useState(0);
+  const [loop, setLoop] = useState(false);
+  const [loopDelay, setLoopDelay] = useState(600000);
+  const [emojiMap, setEmojiMap] = useState<EmojiMap>({});
+  const [emojisLoading, setEmojisLoading] = useState(false);
   const [running, setRunning] = useState(false);
   const [stopFlag, setStopFlag] = useState(false);
   const [log, setLog] = useState<string[]>([]);
@@ -90,6 +95,28 @@ function Index() {
   const removeTarget = (id: string) =>
     setTargets((ts) => (ts.length > 1 ? ts.filter((t) => t.id !== id) : ts));
 
+  const onLoadEmojis = async () => {
+    if (!token.trim()) {
+      append("✗ TOKEN REQUIRED to fetch emojis");
+      return;
+    }
+    setEmojisLoading(true);
+    append("⇣ scanning guilds for custom emojis...");
+    try {
+      const res = await loadEmojis({ data: { token, isBot } });
+      if (res.ok) {
+        setEmojiMap(res.map);
+        append(`✓ loaded ${res.emojiCount} emoji(s) from ${res.guildCount} guild(s)`);
+      } else {
+        append(`✗ emoji scan → ${res.status}: ${res.error.slice(0, 80)}`);
+      }
+    } catch (err) {
+      append(`✗ ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setEmojisLoading(false);
+    }
+  };
+
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (running) return;
@@ -109,10 +136,14 @@ function Index() {
     setRunning(true);
     setStopFlag(false);
     setStats({ sent: 0, failed: 0 });
-    append(`▶ INIT · ${valid.length} target(s) × ${rounds} round(s)`);
+    append(`▶ INIT · ${valid.length} target(s) × ${rounds} round(s)${loop ? " · LOOP" : ""}`);
     let sentCounter = 0;
     try {
-      outer: for (let r = 0; r < rounds; r++) {
+      let cycle = 0;
+      cycleLoop: while (true) {
+        cycle++;
+        if (loop) append(`══ CYCLE ${cycle} ══`);
+        outer: for (let r = 0; r < rounds; r++) {
         const order = shuffle ? shuffled(valid) : valid;
         append(`── ROUND ${r + 1}/${rounds} ──`);
         for (let i = 0; i < order.length; i++) {
@@ -138,6 +169,7 @@ function Index() {
                 isBot,
                 typing,
                 typingMs: tMs,
+                emojiMap: Object.keys(emojiMap).length ? emojiMap : undefined,
               },
             });
             if (res.ok) {
@@ -153,7 +185,8 @@ function Index() {
                 await wait(backoff);
               } else if (res.status === 401 || res.status === 403) {
                 append("■ ABORT · token invalid or forbidden");
-                break outer;
+                setStopFlag(true);
+                break cycleLoop;
               }
             }
           } catch (err) {
@@ -183,8 +216,15 @@ function Index() {
           append(`⏱ ROUND PAUSE · ${(w / 1000).toFixed(1)}s`);
           await wait(w);
         }
+        }
+        if (stopFlag) break cycleLoop;
+        if (!loop) break cycleLoop;
+        const cw = jitter(loopDelay, 25);
+        append(`♻ LOOP PAUSE · ${(cw / 1000).toFixed(0)}s`);
+        await wait(cw);
+        if (stopFlag) break cycleLoop;
       }
-      append("■ CAMPAIGN COMPLETE");
+      append(loop ? "■ LOOP STOPPED" : "■ CAMPAIGN COMPLETE");
     } finally {
       setRunning(false);
       setStopFlag(false);
@@ -244,15 +284,34 @@ function Index() {
             <Panel
               label={`02 // targets [${targets.length}]`}
               action={
-                <button
-                  type="button"
-                  onClick={addTarget}
-                  className="rounded-sm border border-primary/40 bg-primary/10 px-3 py-1 font-mono text-[10px] uppercase tracking-wider text-primary transition-colors hover:bg-primary/20"
-                >
-                  + add target
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={onLoadEmojis}
+                    disabled={emojisLoading}
+                    className="rounded-sm border border-accent/40 bg-accent/10 px-3 py-1 font-mono text-[10px] uppercase tracking-wider text-accent transition-colors hover:bg-accent/20 disabled:opacity-50"
+                    title="Fetch custom emojis from all your servers (Nitro needed for cross-server use with a user token)"
+                  >
+                    {emojisLoading
+                      ? "⇣ scanning..."
+                      : Object.keys(emojiMap).length > 0
+                        ? `☺ ${Object.keys(emojiMap).length} emoji`
+                        : "⇣ load emoji"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={addTarget}
+                    className="rounded-sm border border-primary/40 bg-primary/10 px-3 py-1 font-mono text-[10px] uppercase tracking-wider text-primary transition-colors hover:bg-primary/20"
+                  >
+                    + add target
+                  </button>
+                </div>
               }
             >
+              <p className="mb-3 font-mono text-[10px] leading-relaxed text-muted-foreground">
+                use <span className="text-accent">:emoji_name:</span> in a payload — after loading, custom emojis
+                are auto-resolved to <span className="text-accent">&lt;:name:id&gt;</span>.
+              </p>
               <div className="space-y-3">
                 {targets.map((t, i) => (
                   <div
@@ -307,6 +366,28 @@ function Index() {
                 <Toggle checked={typing} onChange={setTyping} label="typing indicator" />
                 <Toggle checked={humanTyping} onChange={setHumanTyping} label="human-typing time" />
               </div>
+            </Panel>
+
+            <Panel label="04 // persistence">
+              <div className="grid grid-cols-2 gap-3">
+                <Toggle checked={loop} onChange={setLoop} label="loop forever" />
+                <div>
+                  <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                    loop pause (ms)
+                  </label>
+                  <input
+                    type="number"
+                    value={loopDelay}
+                    onChange={(e) => setLoopDelay(Number(e.target.value))}
+                    disabled={!loop}
+                    className="w-full rounded-sm border border-border bg-input px-2 py-1.5 font-mono text-xs text-foreground outline-none focus:border-primary disabled:opacity-40"
+                  />
+                </div>
+              </div>
+              <p className="mt-3 font-mono text-[10px] leading-relaxed text-muted-foreground">
+                loop keeps the campaign running until you hit <span className="text-destructive">abort</span>.
+                keep this tab open — closing it stops the loop.
+              </p>
             </Panel>
 
             <div className="flex gap-2">
