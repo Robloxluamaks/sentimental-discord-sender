@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { sendDiscordMessage, fetchEmojiMap, type EmojiMap } from "@/lib/discord.functions";
 
@@ -68,6 +68,8 @@ function Index() {
   const [emojisLoading, setEmojisLoading] = useState(false);
   const [running, setRunning] = useState(false);
   const [stopFlag, setStopFlag] = useState(false);
+  const stopRef = useRef(false);
+  const waitAbortRef = useRef<(() => void) | null>(null);
   const [log, setLog] = useState<string[]>([]);
   const [stats, setStats] = useState({ sent: 0, failed: 0 });
   const [status, setStatus] = useState<"idle" | "typing" | "sending" | "waiting">("idle");
@@ -82,8 +84,25 @@ function Index() {
   const wait = async (ms: number) => {
     setStatus("waiting");
     setNextInMs(ms);
-    await new Promise((r) => setTimeout(r, ms));
+    await new Promise<void>((resolve) => {
+      const t = setTimeout(() => {
+        waitAbortRef.current = null;
+        resolve();
+      }, ms);
+      waitAbortRef.current = () => {
+        clearTimeout(t);
+        waitAbortRef.current = null;
+        resolve();
+      };
+    });
     setNextInMs(0);
+  };
+
+  const abort = () => {
+    stopRef.current = true;
+    setStopFlag(true);
+    if (waitAbortRef.current) waitAbortRef.current();
+    append("■ ABORT REQUESTED");
   };
 
   const append = (line: string) =>
@@ -135,6 +154,7 @@ function Index() {
     }
     setRunning(true);
     setStopFlag(false);
+    stopRef.current = false;
     setStats({ sent: 0, failed: 0 });
     append(`▶ INIT · ${valid.length} target(s) × ${rounds} round(s)${loop ? " · LOOP" : ""}`);
     let sentCounter = 0;
@@ -147,7 +167,7 @@ function Index() {
         const order = shuffle ? shuffled(valid) : valid;
         append(`── ROUND ${r + 1}/${rounds} ──`);
         for (let i = 0; i < order.length; i++) {
-          if (stopFlag) break outer;
+          if (stopRef.current) break outer;
           const t = order[i];
           // Randomly skip to break patterns
           if (skipChance > 0 && Math.random() * 100 < skipChance) {
@@ -185,6 +205,7 @@ function Index() {
                 await wait(backoff);
               } else if (res.status === 401 || res.status === 403) {
                 append("■ ABORT · token invalid or forbidden");
+                stopRef.current = true;
                 setStopFlag(true);
                 break cycleLoop;
               }
@@ -209,25 +230,28 @@ function Index() {
           if (i < order.length - 1) {
             const w = Math.round(minDelay + Math.random() * (maxDelay - minDelay));
             await wait(w);
+            if (stopRef.current) break outer;
           }
         }
         if (r < rounds - 1) {
           const w = jitter(roundDelay, roundJitter);
           append(`⏱ ROUND PAUSE · ${(w / 1000).toFixed(1)}s`);
           await wait(w);
+          if (stopRef.current) break outer;
         }
         }
-        if (stopFlag) break cycleLoop;
+        if (stopRef.current) break cycleLoop;
         if (!loop) break cycleLoop;
         const cw = jitter(loopDelay, 25);
         append(`♻ LOOP PAUSE · ${(cw / 1000).toFixed(0)}s`);
         await wait(cw);
-        if (stopFlag) break cycleLoop;
+        if (stopRef.current) break cycleLoop;
       }
       append(loop ? "■ LOOP STOPPED" : "■ CAMPAIGN COMPLETE");
     } finally {
       setRunning(false);
       setStopFlag(false);
+      stopRef.current = false;
       setStatus("idle");
       setNextInMs(0);
     }
@@ -402,7 +426,7 @@ function Index() {
               {running && (
                 <button
                   type="button"
-                  onClick={() => setStopFlag(true)}
+                  onClick={abort}
                   className="rounded-md border border-destructive bg-destructive/10 px-4 py-3 font-mono text-sm font-bold uppercase tracking-wider text-destructive hover:bg-destructive hover:text-destructive-foreground"
                 >
                   ■ abort
