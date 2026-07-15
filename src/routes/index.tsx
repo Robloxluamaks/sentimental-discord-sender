@@ -212,7 +212,7 @@ function Index() {
           <div className="flex items-center gap-3 font-mono text-xs">
             <Stat label="sent" value={stats.sent} tone="neon" />
             <Stat label="fail" value={stats.failed} tone="danger" />
-            <StatusPill status={status} nextInMs={nextInMs} />
+            <StatusPill running={running} />
           </div>
         </header>
 
@@ -240,7 +240,7 @@ function Index() {
 
             {/* TARGETS PANEL */}
             <Panel
-              label={`02 // targets [${targets.length}]`}
+              label={`02 // campaigns [${targets.length}]`}
               action={
                 <div className="flex items-center gap-2">
                   <button
@@ -261,14 +261,14 @@ function Index() {
                     onClick={addTarget}
                     className="rounded-sm border border-primary/40 bg-primary/10 px-3 py-1 font-mono text-[10px] uppercase tracking-wider text-primary transition-colors hover:bg-primary/20"
                   >
-                    + add target
+                    + add campaign
                   </button>
                 </div>
               }
             >
               <p className="mb-3 font-mono text-[10px] leading-relaxed text-muted-foreground">
-                use <span className="text-accent">:emoji_name:</span> in a payload — after loading, custom emojis
-                are auto-resolved to <span className="text-accent">&lt;:name:id&gt;</span>.
+                each campaign runs independently in its own loop with its own delay.
+                use <span className="text-accent">:emoji_name:</span> in a message — custom emojis auto-resolve after loading.
               </p>
               <div className="space-y-3">
                 {targets.map((t, i) => (
@@ -277,9 +277,17 @@ function Index() {
                     className="group relative rounded-md border border-border bg-background/40 p-3 transition-colors hover:border-primary/40"
                   >
                     <div className="mb-2 flex items-center justify-between">
-                      <span className="font-mono text-[10px] uppercase tracking-wider text-primary">
-                        node_{String(i).padStart(2, "0")}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-[10px] uppercase tracking-wider text-primary">
+                          #{String(i + 1).padStart(2, "0")}
+                        </span>
+                        <input
+                          value={t.name}
+                          onChange={(e) => updateTarget(t.id, { name: e.target.value })}
+                          className="rounded-sm border border-transparent bg-transparent px-1 py-0.5 font-mono text-xs text-foreground outline-none hover:border-border focus:border-primary"
+                          placeholder="campaign name"
+                        />
+                      </div>
                       <button
                         type="button"
                         onClick={() => removeTarget(t.id)}
@@ -289,62 +297,82 @@ function Index() {
                         purge
                       </button>
                     </div>
+                    <label className="block font-mono text-[9px] uppercase tracking-wider text-muted-foreground">channel id</label>
                     <input
                       value={t.channelId}
                       onChange={(e) => updateTarget(t.id, { channelId: e.target.value })}
-                      className="w-full rounded-sm border border-border bg-input px-2 py-1.5 font-mono text-xs text-foreground outline-none focus:border-primary"
-                      placeholder="channel_id"
+                      className="mt-1 w-full rounded-sm border border-border bg-input px-2 py-1.5 font-mono text-xs text-foreground outline-none focus:border-primary"
+                      placeholder="e.g. 123456789012345678"
                     />
+                    <label className="mt-2 block font-mono text-[9px] uppercase tracking-wider text-muted-foreground">message</label>
                     <textarea
                       value={t.message}
                       onChange={(e) => updateTarget(t.id, { message: e.target.value })}
                       rows={2}
-                      className="mt-2 w-full resize-none rounded-sm border border-border bg-input px-2 py-1.5 font-mono text-xs text-foreground outline-none focus:border-primary"
-                      placeholder="payload..."
+                      className="mt-1 w-full resize-none rounded-sm border border-border bg-input px-2 py-1.5 font-mono text-xs text-foreground outline-none focus:border-primary"
+                      placeholder="what to send..."
                     />
+                    <div className="mt-2 grid grid-cols-[1fr_auto] items-end gap-3">
+                      <div>
+                        <label className="block font-mono text-[9px] uppercase tracking-wider text-muted-foreground">
+                          delay before next send (seconds)
+                        </label>
+                        <input
+                          type="number"
+                          min={1}
+                          value={t.delaySec}
+                          onChange={(e) => updateTarget(t.id, { delaySec: Math.max(1, Number(e.target.value) || 1) })}
+                          className="mt-1 w-full rounded-sm border border-border bg-input px-2 py-1.5 font-mono text-xs text-foreground outline-none focus:border-primary"
+                        />
+                      </div>
+                      <label className="flex items-center gap-2 rounded-sm border border-border bg-input px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                        <input
+                          type="checkbox"
+                          checked={t.loop}
+                          onChange={(e) => updateTarget(t.id, { loop: e.target.checked })}
+                          className="accent-primary"
+                        />
+                        loop
+                      </label>
+                    </div>
                   </div>
                 ))}
               </div>
             </Panel>
 
-            {/* ANTI-DETECT PANEL */}
-            <Panel label="03 // stealth profile">
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="min delay (ms)" value={minDelay} onChange={setMinDelay} />
-                <Field label="max delay (ms)" value={maxDelay} onChange={setMaxDelay} />
-                <Field label="rounds" value={rounds} onChange={(v) => setRounds(Math.max(1, v))} />
-                <Field label="round pause (ms)" value={roundDelay} onChange={setRoundDelay} />
-                <Field label="round jitter %" value={roundJitter} onChange={(v) => setRoundJitter(Math.max(0, Math.min(100, v)))} />
-                <Field label="skip chance %" value={skipChance} onChange={(v) => setSkipChance(Math.max(0, Math.min(50, v)))} />
-                <Field label="long break every N" value={longBreakEvery} onChange={(v) => setLongBreakEvery(Math.max(0, v))} />
-                <Field label="long break (ms)" value={longBreakMs} onChange={setLongBreakMs} />
-              </div>
-              <div className="mt-4 grid gap-2 sm:grid-cols-3">
-                <Toggle checked={shuffle} onChange={setShuffle} label="shuffle order" />
-                <Toggle checked={typing} onChange={setTyping} label="typing indicator" />
-                <Toggle checked={humanTyping} onChange={setHumanTyping} label="human-typing time" />
-              </div>
-            </Panel>
-
-            <Panel label="04 // persistence">
-              <div className="grid grid-cols-2 gap-3">
-                <Toggle checked={loop} onChange={setLoop} label="loop forever" />
-                <div>
-                  <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
-                    loop pause (ms)
-                  </label>
-                  <input
-                    type="number"
-                    value={loopDelay}
-                    onChange={(e) => setLoopDelay(Number(e.target.value))}
-                    disabled={!loop}
-                    className="w-full rounded-sm border border-border bg-input px-2 py-1.5 font-mono text-xs text-foreground outline-none focus:border-primary disabled:opacity-40"
-                  />
-                </div>
+            {/* STEALTH — plain-english preset */}
+            <Panel label="03 // stealth level">
+              <p className="mb-3 font-mono text-[10px] leading-relaxed text-muted-foreground">
+                controls how human-like each send looks. applies to all campaigns.
+              </p>
+              <div className="grid gap-2 sm:grid-cols-3">
+                {(Object.keys(STEALTH) as StealthLevel[]).map((k) => {
+                  const p = STEALTH[k];
+                  const active = stealth === k;
+                  return (
+                    <button
+                      key={k}
+                      type="button"
+                      onClick={() => setStealth(k)}
+                      className={`rounded-md border p-3 text-left transition-all ${
+                        active
+                          ? "border-primary bg-primary/10 shadow-[0_0_20px_-8px_var(--color-primary)]"
+                          : "border-border bg-input/50 hover:border-primary/40"
+                      }`}
+                    >
+                      <div className={`font-mono text-sm font-bold ${active ? "text-primary" : "text-foreground"}`}>
+                        {p.label}
+                      </div>
+                      <div className="mt-1 font-mono text-[10px] leading-snug text-muted-foreground">
+                        {p.blurb}
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
               <p className="mt-3 font-mono text-[10px] leading-relaxed text-muted-foreground">
-                loop keeps the campaign running until you hit <span className="text-destructive">abort</span>.
-                keep this tab open — closing it stops the loop.
+                each campaign loops on its own delay until you hit <span className="text-destructive">abort</span>.
+                keep this tab open — closing it stops everything.
               </p>
             </Panel>
 
@@ -354,13 +382,13 @@ function Index() {
                 disabled={running}
                 className="group relative flex-1 overflow-hidden rounded-md border border-primary bg-primary/10 px-6 py-3 font-mono text-sm font-bold uppercase tracking-[0.2em] text-primary transition-all hover:bg-primary hover:text-primary-foreground disabled:opacity-50"
               >
-                <span className="relative z-10">{running ? "▮▮ transmitting..." : "▶ execute campaign"}</span>
+                <span className="relative z-10">{running ? "▮▮ running..." : "▶ start campaigns"}</span>
                 {!running && <div className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-primary/40 to-transparent transition-transform duration-1000 group-hover:translate-x-full" />}
               </button>
               {running && (
                 <button
                   type="button"
-                  onClick={abort}
+                  onClick={abortAll}
                   className="rounded-md border border-destructive bg-destructive/10 px-4 py-3 font-mono text-sm font-bold uppercase tracking-wider text-destructive hover:bg-destructive hover:text-destructive-foreground"
                 >
                   ■ abort
