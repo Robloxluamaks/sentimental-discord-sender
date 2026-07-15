@@ -553,17 +553,10 @@ function Stat({ label, value, tone }: { label: string; value: number; tone: "neo
   );
 }
 
-function StatusPill({ status, nextInMs }: { status: string; nextInMs: number }) {
-  const map: Record<string, { label: string; color: string }> = {
-    idle: { label: "STANDBY", color: "text-muted-foreground border-border" },
-    typing: { label: "TYPING", color: "text-accent border-accent/40 bg-accent/10" },
-    sending: { label: "TX", color: "text-primary border-primary/40 bg-primary/10" },
-    waiting: {
-      label: nextInMs > 0 ? `WAIT ${(nextInMs / 1000).toFixed(1)}s` : "WAIT",
-      color: "text-warn border-warn/40 bg-warn/10",
-    },
-  };
-  const s = map[status] ?? map.idle;
+function StatusPill({ running }: { running: boolean }) {
+  const s = running
+    ? { label: "RUNNING", color: "text-primary border-primary/40 bg-primary/10" }
+    : { label: "STANDBY", color: "text-muted-foreground border-border" };
   return (
     <div className={`rounded-sm border px-3 py-2 font-mono text-[10px] uppercase tracking-wider ${s.color}`}>
       <span className="inline-block h-1.5 w-1.5 rounded-full bg-current mr-1.5 animate-pulse" />
