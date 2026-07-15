@@ -15,12 +15,22 @@ export const Route = createFileRoute("/")({
   component: Index,
 });
 
-type Target = { id: string; channelId: string; message: string };
+type Target = {
+  id: string;
+  name: string;
+  channelId: string;
+  message: string;
+  delaySec: number;
+  loop: boolean;
+};
 
 const newTarget = (): Target => ({
   id: Math.random().toString(36).slice(2, 9),
+  name: "campaign",
   channelId: "",
   message: "",
+  delaySec: 60,
+  loop: true,
 });
 
 function jitter(base: number, jitterPct: number) {
@@ -28,14 +38,15 @@ function jitter(base: number, jitterPct: number) {
   return Math.max(0, Math.round(base + (Math.random() * 2 - 1) * delta));
 }
 
-function shuffled<T>(arr: T[]) {
-  const a = [...arr];
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
-}
+type StealthLevel = "low" | "balanced" | "max";
+const STEALTH: Record<
+  StealthLevel,
+  { label: string; blurb: string; typing: boolean; humanTyping: boolean; jitterPct: number }
+> = {
+  low:      { label: "Fast",        blurb: "Sends quickly with minimal delay. Higher risk on user tokens.",       typing: false, humanTyping: false, jitterPct: 10 },
+  balanced: { label: "Balanced",    blurb: "Typing indicator + ~15% timing jitter. Good default.",                 typing: true,  humanTyping: false, jitterPct: 15 },
+  max:      { label: "Max Stealth", blurb: "Realistic typing time based on message length + ~30% jitter. Slowest.", typing: true,  humanTyping: true,  jitterPct: 30 },
+};
 
 // Human-typing duration model: ~4 chars/second with realistic variance,
 // clamped to feel natural even for very short or long messages.
@@ -51,57 +62,33 @@ function Index() {
   const [token, setToken] = useState("");
   const [isBot, setIsBot] = useState(true);
   const [targets, setTargets] = useState<Target[]>([newTarget()]);
-  const [rounds, setRounds] = useState(1);
-  const [minDelay, setMinDelay] = useState(8000);
-  const [maxDelay, setMaxDelay] = useState(22000);
-  const [roundDelay, setRoundDelay] = useState(180000);
-  const [roundJitter, setRoundJitter] = useState(30);
-  const [shuffle, setShuffle] = useState(true);
-  const [typing, setTyping] = useState(true);
-  const [humanTyping, setHumanTyping] = useState(true);
-  const [longBreakEvery, setLongBreakEvery] = useState(8);
-  const [longBreakMs, setLongBreakMs] = useState(120000);
-  const [skipChance, setSkipChance] = useState(0);
-  const [loop, setLoop] = useState(false);
-  const [loopDelay, setLoopDelay] = useState(600000);
+  const [stealth, setStealth] = useState<StealthLevel>("balanced");
   const [emojiMap, setEmojiMap] = useState<EmojiMap>({});
   const [emojisLoading, setEmojisLoading] = useState(false);
   const [running, setRunning] = useState(false);
-  const [stopFlag, setStopFlag] = useState(false);
   const stopRef = useRef(false);
-  const waitAbortRef = useRef<(() => void) | null>(null);
+  const waitAbortersRef = useRef<Set<() => void>>(new Set());
   const [log, setLog] = useState<string[]>([]);
   const [stats, setStats] = useState({ sent: 0, failed: 0 });
-  const [status, setStatus] = useState<"idle" | "typing" | "sending" | "waiting">("idle");
-  const [nextInMs, setNextInMs] = useState(0);
-
-  useEffect(() => {
-    if (nextInMs <= 0) return;
-    const t = setInterval(() => setNextInMs((v) => Math.max(0, v - 250)), 250);
-    return () => clearInterval(t);
-  }, [nextInMs]);
 
   const wait = async (ms: number) => {
-    setStatus("waiting");
-    setNextInMs(ms);
     await new Promise<void>((resolve) => {
       const t = setTimeout(() => {
-        waitAbortRef.current = null;
+        waitAbortersRef.current.delete(abort);
         resolve();
       }, ms);
-      waitAbortRef.current = () => {
+      const abort = () => {
         clearTimeout(t);
-        waitAbortRef.current = null;
+        waitAbortersRef.current.delete(abort);
         resolve();
       };
+      waitAbortersRef.current.add(abort);
     });
-    setNextInMs(0);
   };
 
-  const abort = () => {
+  const abortAll = () => {
     stopRef.current = true;
-    setStopFlag(true);
-    if (waitAbortRef.current) waitAbortRef.current();
+    for (const a of Array.from(waitAbortersRef.current)) a();
     append("■ ABORT REQUESTED");
   };
 
@@ -136,124 +123,71 @@ function Index() {
     }
   };
 
+  const runCampaign = async (t: Target) => {
+    const tag = t.name.trim() || `#${t.channelId.slice(-6)}`;
+    const preset = STEALTH[stealth];
+    do {
+      if (stopRef.current) break;
+      const tMs = preset.humanTyping ? humanTypingMs(t.message) : 1500;
+      if (preset.typing) append(`✎ [${tag}] typing (~${(tMs / 1000).toFixed(1)}s)`);
+      try {
+        const res = await send({
+          data: {
+            token,
+            channelId: t.channelId,
+            message: t.message,
+            isBot,
+            typing: preset.typing,
+            typingMs: tMs,
+            emojiMap: Object.keys(emojiMap).length ? emojiMap : undefined,
+          },
+        });
+        if (res.ok) {
+          setStats((s) => ({ ...s, sent: s.sent + 1 }));
+          append(`✓ [${tag}] sent`);
+        } else {
+          setStats((s) => ({ ...s, failed: s.failed + 1 }));
+          append(`✗ [${tag}] ${res.status}: ${res.error.slice(0, 80)}`);
+          if (res.status === 429) {
+            const backoff = Math.max(30000, Math.round((res.retryAfter ?? 30) * 1000));
+            append(`⏸ [${tag}] rate limit · cooling ${(backoff / 1000).toFixed(0)}s`);
+            await wait(backoff);
+          } else if (res.status === 401 || res.status === 403) {
+            append(`■ [${tag}] token invalid/forbidden — aborting all`);
+            stopRef.current = true;
+            for (const a of Array.from(waitAbortersRef.current)) a();
+            return;
+          }
+        }
+      } catch (err) {
+        setStats((s) => ({ ...s, failed: s.failed + 1 }));
+        append(`✗ [${tag}] ${err instanceof Error ? err.message : String(err)}`);
+      }
+      if (!t.loop || stopRef.current) break;
+      const baseMs = Math.max(1000, t.delaySec * 1000);
+      const w = jitter(baseMs, preset.jitterPct);
+      append(`⏱ [${tag}] next in ${(w / 1000).toFixed(1)}s`);
+      await wait(w);
+    } while (t.loop && !stopRef.current);
+    append(`■ [${tag}] stopped`);
+  };
+
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (running) return;
-    if (!token.trim()) {
-      append("✗ TOKEN REQUIRED");
-      return;
-    }
+    if (!token.trim()) { append("✗ TOKEN REQUIRED"); return; }
     const valid = targets.filter((t) => t.channelId.trim() && t.message.trim());
-    if (valid.length === 0) {
-      append("✗ ADD AT LEAST ONE TARGET");
-      return;
-    }
-    if (minDelay > maxDelay) {
-      append("✗ MIN DELAY > MAX DELAY");
-      return;
-    }
+    if (valid.length === 0) { append("✗ ADD AT LEAST ONE CAMPAIGN"); return; }
     setRunning(true);
-    setStopFlag(false);
     stopRef.current = false;
     setStats({ sent: 0, failed: 0 });
-    append(`▶ INIT · ${valid.length} target(s) × ${rounds} round(s)${loop ? " · LOOP" : ""}`);
-    let sentCounter = 0;
+    append(`▶ launching ${valid.length} campaign(s) · stealth: ${STEALTH[stealth].label}`);
     try {
-      let cycle = 0;
-      cycleLoop: while (true) {
-        cycle++;
-        if (loop) append(`══ CYCLE ${cycle} ══`);
-        outer: for (let r = 0; r < rounds; r++) {
-        const order = shuffle ? shuffled(valid) : valid;
-        append(`── ROUND ${r + 1}/${rounds} ──`);
-        for (let i = 0; i < order.length; i++) {
-          if (stopRef.current) break outer;
-          const t = order[i];
-          // Randomly skip to break patterns
-          if (skipChance > 0 && Math.random() * 100 < skipChance) {
-            append(`↷ skip #${t.channelId.slice(-6)} (pattern break)`);
-            continue;
-          }
-          const tMs = humanTyping ? humanTypingMs(t.message) : 1500;
-          if (typing) {
-            setStatus("typing");
-            append(`✎ typing #${t.channelId.slice(-6)} (~${(tMs / 1000).toFixed(1)}s)`);
-          }
-          try {
-            setStatus("sending");
-            const res = await send({
-              data: {
-                token,
-                channelId: t.channelId,
-                message: t.message,
-                isBot,
-                typing,
-                typingMs: tMs,
-                emojiMap: Object.keys(emojiMap).length ? emojiMap : undefined,
-              },
-            });
-            if (res.ok) {
-              sentCounter++;
-              setStats((s) => ({ ...s, sent: s.sent + 1 }));
-              append(`✓ sent #${t.channelId.slice(-6)}`);
-            } else {
-              setStats((s) => ({ ...s, failed: s.failed + 1 }));
-              append(`✗ #${t.channelId.slice(-6)} → ${res.status}: ${res.error.slice(0, 80)}`);
-              if (res.status === 429) {
-                const backoff = Math.max(30000, Math.round((res.retryAfter ?? 30) * 1000));
-                append(`⏸ RATE LIMIT · cooling ${(backoff / 1000).toFixed(0)}s`);
-                await wait(backoff);
-              } else if (res.status === 401 || res.status === 403) {
-                append("■ ABORT · token invalid or forbidden");
-                stopRef.current = true;
-                setStopFlag(true);
-                break cycleLoop;
-              }
-            }
-          } catch (err) {
-            setStats((s) => ({ ...s, failed: s.failed + 1 }));
-            append(`✗ ${err instanceof Error ? err.message : String(err)}`);
-          }
-
-          // Long break every N sends to mimic human breaks
-          if (
-            longBreakEvery > 0 &&
-            sentCounter > 0 &&
-            sentCounter % longBreakEvery === 0 &&
-            !(r === rounds - 1 && i === order.length - 1)
-          ) {
-            const brk = jitter(longBreakMs, 40);
-            append(`☕ LONG BREAK · ${(brk / 1000).toFixed(0)}s`);
-            await wait(brk);
-          }
-
-          if (i < order.length - 1) {
-            const w = Math.round(minDelay + Math.random() * (maxDelay - minDelay));
-            await wait(w);
-            if (stopRef.current) break outer;
-          }
-        }
-        if (r < rounds - 1) {
-          const w = jitter(roundDelay, roundJitter);
-          append(`⏱ ROUND PAUSE · ${(w / 1000).toFixed(1)}s`);
-          await wait(w);
-          if (stopRef.current) break outer;
-        }
-        }
-        if (stopRef.current) break cycleLoop;
-        if (!loop) break cycleLoop;
-        const cw = jitter(loopDelay, 25);
-        append(`♻ LOOP PAUSE · ${(cw / 1000).toFixed(0)}s`);
-        await wait(cw);
-        if (stopRef.current) break cycleLoop;
-      }
-      append(loop ? "■ LOOP STOPPED" : "■ CAMPAIGN COMPLETE");
+      await Promise.all(valid.map((t) => runCampaign(t)));
+      append("■ all campaigns stopped");
     } finally {
       setRunning(false);
-      setStopFlag(false);
       stopRef.current = false;
-      setStatus("idle");
-      setNextInMs(0);
     }
   };
 
@@ -278,7 +212,7 @@ function Index() {
           <div className="flex items-center gap-3 font-mono text-xs">
             <Stat label="sent" value={stats.sent} tone="neon" />
             <Stat label="fail" value={stats.failed} tone="danger" />
-            <StatusPill status={status} nextInMs={nextInMs} />
+            <StatusPill running={running} />
           </div>
         </header>
 
@@ -306,7 +240,7 @@ function Index() {
 
             {/* TARGETS PANEL */}
             <Panel
-              label={`02 // targets [${targets.length}]`}
+              label={`02 // campaigns [${targets.length}]`}
               action={
                 <div className="flex items-center gap-2">
                   <button
@@ -327,14 +261,14 @@ function Index() {
                     onClick={addTarget}
                     className="rounded-sm border border-primary/40 bg-primary/10 px-3 py-1 font-mono text-[10px] uppercase tracking-wider text-primary transition-colors hover:bg-primary/20"
                   >
-                    + add target
+                    + add campaign
                   </button>
                 </div>
               }
             >
               <p className="mb-3 font-mono text-[10px] leading-relaxed text-muted-foreground">
-                use <span className="text-accent">:emoji_name:</span> in a payload — after loading, custom emojis
-                are auto-resolved to <span className="text-accent">&lt;:name:id&gt;</span>.
+                each campaign runs independently in its own loop with its own delay.
+                use <span className="text-accent">:emoji_name:</span> in a message — custom emojis auto-resolve after loading.
               </p>
               <div className="space-y-3">
                 {targets.map((t, i) => (
@@ -343,9 +277,17 @@ function Index() {
                     className="group relative rounded-md border border-border bg-background/40 p-3 transition-colors hover:border-primary/40"
                   >
                     <div className="mb-2 flex items-center justify-between">
-                      <span className="font-mono text-[10px] uppercase tracking-wider text-primary">
-                        node_{String(i).padStart(2, "0")}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-[10px] uppercase tracking-wider text-primary">
+                          #{String(i + 1).padStart(2, "0")}
+                        </span>
+                        <input
+                          value={t.name}
+                          onChange={(e) => updateTarget(t.id, { name: e.target.value })}
+                          className="rounded-sm border border-transparent bg-transparent px-1 py-0.5 font-mono text-xs text-foreground outline-none hover:border-border focus:border-primary"
+                          placeholder="campaign name"
+                        />
+                      </div>
                       <button
                         type="button"
                         onClick={() => removeTarget(t.id)}
@@ -355,62 +297,82 @@ function Index() {
                         purge
                       </button>
                     </div>
+                    <label className="block font-mono text-[9px] uppercase tracking-wider text-muted-foreground">channel id</label>
                     <input
                       value={t.channelId}
                       onChange={(e) => updateTarget(t.id, { channelId: e.target.value })}
-                      className="w-full rounded-sm border border-border bg-input px-2 py-1.5 font-mono text-xs text-foreground outline-none focus:border-primary"
-                      placeholder="channel_id"
+                      className="mt-1 w-full rounded-sm border border-border bg-input px-2 py-1.5 font-mono text-xs text-foreground outline-none focus:border-primary"
+                      placeholder="e.g. 123456789012345678"
                     />
+                    <label className="mt-2 block font-mono text-[9px] uppercase tracking-wider text-muted-foreground">message</label>
                     <textarea
                       value={t.message}
                       onChange={(e) => updateTarget(t.id, { message: e.target.value })}
                       rows={2}
-                      className="mt-2 w-full resize-none rounded-sm border border-border bg-input px-2 py-1.5 font-mono text-xs text-foreground outline-none focus:border-primary"
-                      placeholder="payload..."
+                      className="mt-1 w-full resize-none rounded-sm border border-border bg-input px-2 py-1.5 font-mono text-xs text-foreground outline-none focus:border-primary"
+                      placeholder="what to send..."
                     />
+                    <div className="mt-2 grid grid-cols-[1fr_auto] items-end gap-3">
+                      <div>
+                        <label className="block font-mono text-[9px] uppercase tracking-wider text-muted-foreground">
+                          delay before next send (seconds)
+                        </label>
+                        <input
+                          type="number"
+                          min={1}
+                          value={t.delaySec}
+                          onChange={(e) => updateTarget(t.id, { delaySec: Math.max(1, Number(e.target.value) || 1) })}
+                          className="mt-1 w-full rounded-sm border border-border bg-input px-2 py-1.5 font-mono text-xs text-foreground outline-none focus:border-primary"
+                        />
+                      </div>
+                      <label className="flex items-center gap-2 rounded-sm border border-border bg-input px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                        <input
+                          type="checkbox"
+                          checked={t.loop}
+                          onChange={(e) => updateTarget(t.id, { loop: e.target.checked })}
+                          className="accent-primary"
+                        />
+                        loop
+                      </label>
+                    </div>
                   </div>
                 ))}
               </div>
             </Panel>
 
-            {/* ANTI-DETECT PANEL */}
-            <Panel label="03 // stealth profile">
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="min delay (ms)" value={minDelay} onChange={setMinDelay} />
-                <Field label="max delay (ms)" value={maxDelay} onChange={setMaxDelay} />
-                <Field label="rounds" value={rounds} onChange={(v) => setRounds(Math.max(1, v))} />
-                <Field label="round pause (ms)" value={roundDelay} onChange={setRoundDelay} />
-                <Field label="round jitter %" value={roundJitter} onChange={(v) => setRoundJitter(Math.max(0, Math.min(100, v)))} />
-                <Field label="skip chance %" value={skipChance} onChange={(v) => setSkipChance(Math.max(0, Math.min(50, v)))} />
-                <Field label="long break every N" value={longBreakEvery} onChange={(v) => setLongBreakEvery(Math.max(0, v))} />
-                <Field label="long break (ms)" value={longBreakMs} onChange={setLongBreakMs} />
-              </div>
-              <div className="mt-4 grid gap-2 sm:grid-cols-3">
-                <Toggle checked={shuffle} onChange={setShuffle} label="shuffle order" />
-                <Toggle checked={typing} onChange={setTyping} label="typing indicator" />
-                <Toggle checked={humanTyping} onChange={setHumanTyping} label="human-typing time" />
-              </div>
-            </Panel>
-
-            <Panel label="04 // persistence">
-              <div className="grid grid-cols-2 gap-3">
-                <Toggle checked={loop} onChange={setLoop} label="loop forever" />
-                <div>
-                  <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
-                    loop pause (ms)
-                  </label>
-                  <input
-                    type="number"
-                    value={loopDelay}
-                    onChange={(e) => setLoopDelay(Number(e.target.value))}
-                    disabled={!loop}
-                    className="w-full rounded-sm border border-border bg-input px-2 py-1.5 font-mono text-xs text-foreground outline-none focus:border-primary disabled:opacity-40"
-                  />
-                </div>
+            {/* STEALTH — plain-english preset */}
+            <Panel label="03 // stealth level">
+              <p className="mb-3 font-mono text-[10px] leading-relaxed text-muted-foreground">
+                controls how human-like each send looks. applies to all campaigns.
+              </p>
+              <div className="grid gap-2 sm:grid-cols-3">
+                {(Object.keys(STEALTH) as StealthLevel[]).map((k) => {
+                  const p = STEALTH[k];
+                  const active = stealth === k;
+                  return (
+                    <button
+                      key={k}
+                      type="button"
+                      onClick={() => setStealth(k)}
+                      className={`rounded-md border p-3 text-left transition-all ${
+                        active
+                          ? "border-primary bg-primary/10 shadow-[0_0_20px_-8px_var(--color-primary)]"
+                          : "border-border bg-input/50 hover:border-primary/40"
+                      }`}
+                    >
+                      <div className={`font-mono text-sm font-bold ${active ? "text-primary" : "text-foreground"}`}>
+                        {p.label}
+                      </div>
+                      <div className="mt-1 font-mono text-[10px] leading-snug text-muted-foreground">
+                        {p.blurb}
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
               <p className="mt-3 font-mono text-[10px] leading-relaxed text-muted-foreground">
-                loop keeps the campaign running until you hit <span className="text-destructive">abort</span>.
-                keep this tab open — closing it stops the loop.
+                each campaign loops on its own delay until you hit <span className="text-destructive">abort</span>.
+                keep this tab open — closing it stops everything.
               </p>
             </Panel>
 
@@ -420,13 +382,13 @@ function Index() {
                 disabled={running}
                 className="group relative flex-1 overflow-hidden rounded-md border border-primary bg-primary/10 px-6 py-3 font-mono text-sm font-bold uppercase tracking-[0.2em] text-primary transition-all hover:bg-primary hover:text-primary-foreground disabled:opacity-50"
               >
-                <span className="relative z-10">{running ? "▮▮ transmitting..." : "▶ execute campaign"}</span>
+                <span className="relative z-10">{running ? "▮▮ running..." : "▶ start campaigns"}</span>
                 {!running && <div className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-primary/40 to-transparent transition-transform duration-1000 group-hover:translate-x-full" />}
               </button>
               {running && (
                 <button
                   type="button"
-                  onClick={abort}
+                  onClick={abortAll}
                   className="rounded-md border border-destructive bg-destructive/10 px-4 py-3 font-mono text-sm font-bold uppercase tracking-wider text-destructive hover:bg-destructive hover:text-destructive-foreground"
                 >
                   ■ abort
@@ -591,17 +553,10 @@ function Stat({ label, value, tone }: { label: string; value: number; tone: "neo
   );
 }
 
-function StatusPill({ status, nextInMs }: { status: string; nextInMs: number }) {
-  const map: Record<string, { label: string; color: string }> = {
-    idle: { label: "STANDBY", color: "text-muted-foreground border-border" },
-    typing: { label: "TYPING", color: "text-accent border-accent/40 bg-accent/10" },
-    sending: { label: "TX", color: "text-primary border-primary/40 bg-primary/10" },
-    waiting: {
-      label: nextInMs > 0 ? `WAIT ${(nextInMs / 1000).toFixed(1)}s` : "WAIT",
-      color: "text-warn border-warn/40 bg-warn/10",
-    },
-  };
-  const s = map[status] ?? map.idle;
+function StatusPill({ running }: { running: boolean }) {
+  const s = running
+    ? { label: "RUNNING", color: "text-primary border-primary/40 bg-primary/10" }
+    : { label: "STANDBY", color: "text-muted-foreground border-border" };
   return (
     <div className={`rounded-sm border px-3 py-2 font-mono text-[10px] uppercase tracking-wider ${s.color}`}>
       <span className="inline-block h-1.5 w-1.5 rounded-full bg-current mr-1.5 animate-pulse" />
