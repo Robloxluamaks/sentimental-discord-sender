@@ -123,124 +123,71 @@ function Index() {
     }
   };
 
+  const runCampaign = async (t: Target) => {
+    const tag = t.name.trim() || `#${t.channelId.slice(-6)}`;
+    const preset = STEALTH[stealth];
+    do {
+      if (stopRef.current) break;
+      const tMs = preset.humanTyping ? humanTypingMs(t.message) : 1500;
+      if (preset.typing) append(`✎ [${tag}] typing (~${(tMs / 1000).toFixed(1)}s)`);
+      try {
+        const res = await send({
+          data: {
+            token,
+            channelId: t.channelId,
+            message: t.message,
+            isBot,
+            typing: preset.typing,
+            typingMs: tMs,
+            emojiMap: Object.keys(emojiMap).length ? emojiMap : undefined,
+          },
+        });
+        if (res.ok) {
+          setStats((s) => ({ ...s, sent: s.sent + 1 }));
+          append(`✓ [${tag}] sent`);
+        } else {
+          setStats((s) => ({ ...s, failed: s.failed + 1 }));
+          append(`✗ [${tag}] ${res.status}: ${res.error.slice(0, 80)}`);
+          if (res.status === 429) {
+            const backoff = Math.max(30000, Math.round((res.retryAfter ?? 30) * 1000));
+            append(`⏸ [${tag}] rate limit · cooling ${(backoff / 1000).toFixed(0)}s`);
+            await wait(backoff);
+          } else if (res.status === 401 || res.status === 403) {
+            append(`■ [${tag}] token invalid/forbidden — aborting all`);
+            stopRef.current = true;
+            for (const a of Array.from(waitAbortersRef.current)) a();
+            return;
+          }
+        }
+      } catch (err) {
+        setStats((s) => ({ ...s, failed: s.failed + 1 }));
+        append(`✗ [${tag}] ${err instanceof Error ? err.message : String(err)}`);
+      }
+      if (!t.loop || stopRef.current) break;
+      const baseMs = Math.max(1000, t.delaySec * 1000);
+      const w = jitter(baseMs, preset.jitterPct);
+      append(`⏱ [${tag}] next in ${(w / 1000).toFixed(1)}s`);
+      await wait(w);
+    } while (t.loop && !stopRef.current);
+    append(`■ [${tag}] stopped`);
+  };
+
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (running) return;
-    if (!token.trim()) {
-      append("✗ TOKEN REQUIRED");
-      return;
-    }
+    if (!token.trim()) { append("✗ TOKEN REQUIRED"); return; }
     const valid = targets.filter((t) => t.channelId.trim() && t.message.trim());
-    if (valid.length === 0) {
-      append("✗ ADD AT LEAST ONE TARGET");
-      return;
-    }
-    if (minDelay > maxDelay) {
-      append("✗ MIN DELAY > MAX DELAY");
-      return;
-    }
+    if (valid.length === 0) { append("✗ ADD AT LEAST ONE CAMPAIGN"); return; }
     setRunning(true);
-    setStopFlag(false);
     stopRef.current = false;
     setStats({ sent: 0, failed: 0 });
-    append(`▶ INIT · ${valid.length} target(s) × ${rounds} round(s)${loop ? " · LOOP" : ""}`);
-    let sentCounter = 0;
+    append(`▶ launching ${valid.length} campaign(s) · stealth: ${STEALTH[stealth].label}`);
     try {
-      let cycle = 0;
-      cycleLoop: while (true) {
-        cycle++;
-        if (loop) append(`══ CYCLE ${cycle} ══`);
-        outer: for (let r = 0; r < rounds; r++) {
-        const order = shuffle ? shuffled(valid) : valid;
-        append(`── ROUND ${r + 1}/${rounds} ──`);
-        for (let i = 0; i < order.length; i++) {
-          if (stopRef.current) break outer;
-          const t = order[i];
-          // Randomly skip to break patterns
-          if (skipChance > 0 && Math.random() * 100 < skipChance) {
-            append(`↷ skip #${t.channelId.slice(-6)} (pattern break)`);
-            continue;
-          }
-          const tMs = humanTyping ? humanTypingMs(t.message) : 1500;
-          if (typing) {
-            setStatus("typing");
-            append(`✎ typing #${t.channelId.slice(-6)} (~${(tMs / 1000).toFixed(1)}s)`);
-          }
-          try {
-            setStatus("sending");
-            const res = await send({
-              data: {
-                token,
-                channelId: t.channelId,
-                message: t.message,
-                isBot,
-                typing,
-                typingMs: tMs,
-                emojiMap: Object.keys(emojiMap).length ? emojiMap : undefined,
-              },
-            });
-            if (res.ok) {
-              sentCounter++;
-              setStats((s) => ({ ...s, sent: s.sent + 1 }));
-              append(`✓ sent #${t.channelId.slice(-6)}`);
-            } else {
-              setStats((s) => ({ ...s, failed: s.failed + 1 }));
-              append(`✗ #${t.channelId.slice(-6)} → ${res.status}: ${res.error.slice(0, 80)}`);
-              if (res.status === 429) {
-                const backoff = Math.max(30000, Math.round((res.retryAfter ?? 30) * 1000));
-                append(`⏸ RATE LIMIT · cooling ${(backoff / 1000).toFixed(0)}s`);
-                await wait(backoff);
-              } else if (res.status === 401 || res.status === 403) {
-                append("■ ABORT · token invalid or forbidden");
-                stopRef.current = true;
-                setStopFlag(true);
-                break cycleLoop;
-              }
-            }
-          } catch (err) {
-            setStats((s) => ({ ...s, failed: s.failed + 1 }));
-            append(`✗ ${err instanceof Error ? err.message : String(err)}`);
-          }
-
-          // Long break every N sends to mimic human breaks
-          if (
-            longBreakEvery > 0 &&
-            sentCounter > 0 &&
-            sentCounter % longBreakEvery === 0 &&
-            !(r === rounds - 1 && i === order.length - 1)
-          ) {
-            const brk = jitter(longBreakMs, 40);
-            append(`☕ LONG BREAK · ${(brk / 1000).toFixed(0)}s`);
-            await wait(brk);
-          }
-
-          if (i < order.length - 1) {
-            const w = Math.round(minDelay + Math.random() * (maxDelay - minDelay));
-            await wait(w);
-            if (stopRef.current) break outer;
-          }
-        }
-        if (r < rounds - 1) {
-          const w = jitter(roundDelay, roundJitter);
-          append(`⏱ ROUND PAUSE · ${(w / 1000).toFixed(1)}s`);
-          await wait(w);
-          if (stopRef.current) break outer;
-        }
-        }
-        if (stopRef.current) break cycleLoop;
-        if (!loop) break cycleLoop;
-        const cw = jitter(loopDelay, 25);
-        append(`♻ LOOP PAUSE · ${(cw / 1000).toFixed(0)}s`);
-        await wait(cw);
-        if (stopRef.current) break cycleLoop;
-      }
-      append(loop ? "■ LOOP STOPPED" : "■ CAMPAIGN COMPLETE");
+      await Promise.all(valid.map((t) => runCampaign(t)));
+      append("■ all campaigns stopped");
     } finally {
       setRunning(false);
-      setStopFlag(false);
       stopRef.current = false;
-      setStatus("idle");
-      setNextInMs(0);
     }
   };
 
