@@ -62,57 +62,33 @@ function Index() {
   const [token, setToken] = useState("");
   const [isBot, setIsBot] = useState(true);
   const [targets, setTargets] = useState<Target[]>([newTarget()]);
-  const [rounds, setRounds] = useState(1);
-  const [minDelay, setMinDelay] = useState(8000);
-  const [maxDelay, setMaxDelay] = useState(22000);
-  const [roundDelay, setRoundDelay] = useState(180000);
-  const [roundJitter, setRoundJitter] = useState(30);
-  const [shuffle, setShuffle] = useState(true);
-  const [typing, setTyping] = useState(true);
-  const [humanTyping, setHumanTyping] = useState(true);
-  const [longBreakEvery, setLongBreakEvery] = useState(8);
-  const [longBreakMs, setLongBreakMs] = useState(120000);
-  const [skipChance, setSkipChance] = useState(0);
-  const [loop, setLoop] = useState(false);
-  const [loopDelay, setLoopDelay] = useState(600000);
+  const [stealth, setStealth] = useState<StealthLevel>("balanced");
   const [emojiMap, setEmojiMap] = useState<EmojiMap>({});
   const [emojisLoading, setEmojisLoading] = useState(false);
   const [running, setRunning] = useState(false);
-  const [stopFlag, setStopFlag] = useState(false);
   const stopRef = useRef(false);
-  const waitAbortRef = useRef<(() => void) | null>(null);
+  const waitAbortersRef = useRef<Set<() => void>>(new Set());
   const [log, setLog] = useState<string[]>([]);
   const [stats, setStats] = useState({ sent: 0, failed: 0 });
-  const [status, setStatus] = useState<"idle" | "typing" | "sending" | "waiting">("idle");
-  const [nextInMs, setNextInMs] = useState(0);
-
-  useEffect(() => {
-    if (nextInMs <= 0) return;
-    const t = setInterval(() => setNextInMs((v) => Math.max(0, v - 250)), 250);
-    return () => clearInterval(t);
-  }, [nextInMs]);
 
   const wait = async (ms: number) => {
-    setStatus("waiting");
-    setNextInMs(ms);
     await new Promise<void>((resolve) => {
       const t = setTimeout(() => {
-        waitAbortRef.current = null;
+        waitAbortersRef.current.delete(abort);
         resolve();
       }, ms);
-      waitAbortRef.current = () => {
+      const abort = () => {
         clearTimeout(t);
-        waitAbortRef.current = null;
+        waitAbortersRef.current.delete(abort);
         resolve();
       };
+      waitAbortersRef.current.add(abort);
     });
-    setNextInMs(0);
   };
 
-  const abort = () => {
+  const abortAll = () => {
     stopRef.current = true;
-    setStopFlag(true);
-    if (waitAbortRef.current) waitAbortRef.current();
+    for (const a of Array.from(waitAbortersRef.current)) a();
     append("■ ABORT REQUESTED");
   };
 
