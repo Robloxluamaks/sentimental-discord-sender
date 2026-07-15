@@ -15,12 +15,22 @@ export const Route = createFileRoute("/")({
   component: Index,
 });
 
-type Target = { id: string; channelId: string; message: string };
+type Target = {
+  id: string;
+  name: string;
+  channelId: string;
+  message: string;
+  delaySec: number;
+  loop: boolean;
+};
 
 const newTarget = (): Target => ({
   id: Math.random().toString(36).slice(2, 9),
+  name: "campaign",
   channelId: "",
   message: "",
+  delaySec: 60,
+  loop: true,
 });
 
 function jitter(base: number, jitterPct: number) {
@@ -28,14 +38,15 @@ function jitter(base: number, jitterPct: number) {
   return Math.max(0, Math.round(base + (Math.random() * 2 - 1) * delta));
 }
 
-function shuffled<T>(arr: T[]) {
-  const a = [...arr];
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
-}
+type StealthLevel = "low" | "balanced" | "max";
+const STEALTH: Record<
+  StealthLevel,
+  { label: string; blurb: string; typing: boolean; humanTyping: boolean; jitterPct: number }
+> = {
+  low:      { label: "Fast",        blurb: "Sends quickly with minimal delay. Higher risk on user tokens.",       typing: false, humanTyping: false, jitterPct: 10 },
+  balanced: { label: "Balanced",    blurb: "Typing indicator + ~15% timing jitter. Good default.",                 typing: true,  humanTyping: false, jitterPct: 15 },
+  max:      { label: "Max Stealth", blurb: "Realistic typing time based on message length + ~30% jitter. Slowest.", typing: true,  humanTyping: true,  jitterPct: 30 },
+};
 
 // Human-typing duration model: ~4 chars/second with realistic variance,
 // clamped to feel natural even for very short or long messages.
