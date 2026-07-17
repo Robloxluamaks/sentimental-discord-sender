@@ -35,7 +35,8 @@ const newTarget = (): Target => ({
 
 function jitter(base: number, jitterPct: number) {
   const delta = base * (jitterPct / 100);
-  return Math.max(0, Math.round(base + (Math.random() * 2 - 1) * delta));
+  // Jitter is additive only — never below the configured delay.
+  return Math.max(0, Math.round(base + Math.random() * delta));
 }
 
 type StealthLevel = "low" | "balanced" | "max";
@@ -43,9 +44,9 @@ const STEALTH: Record<
   StealthLevel,
   { label: string; blurb: string; typing: boolean; humanTyping: boolean; jitterPct: number }
 > = {
-  low:      { label: "Fast",        blurb: "Sends quickly with minimal delay. Higher risk on user tokens.",       typing: false, humanTyping: false, jitterPct: 10 },
-  balanced: { label: "Balanced",    blurb: "Typing indicator + ~15% timing jitter. Good default.",                 typing: true,  humanTyping: false, jitterPct: 15 },
-  max:      { label: "Max Stealth", blurb: "Realistic typing time based on message length + ~30% jitter. Slowest.", typing: true,  humanTyping: true,  jitterPct: 30 },
+  low:      { label: "Fast",        blurb: "Sends quickly with minimal delay. Higher risk on user tokens.",           typing: false, humanTyping: false, jitterPct: 8 },
+  balanced: { label: "Balanced",    blurb: "Typing indicator + up to +12% extra delay. Good default.",                 typing: true,  humanTyping: false, jitterPct: 12 },
+  max:      { label: "Max Stealth", blurb: "Realistic typing time based on message length + up to +15% extra delay.", typing: true,  humanTyping: true,  jitterPct: 15 },
 };
 
 // Human-typing duration model: ~4 chars/second with realistic variance,
