@@ -1,0 +1,147 @@
+{
+  "version": 1,
+  "sdk_version": "0.23.0",
+  "path": "/mcp",
+  "auth": {
+    "type": "none"
+  },
+  "mcp": {
+    "server": {
+      "name": "discord-autosender-mcp",
+      "version": "0.1.0",
+      "title": "Discord Autosender"
+    },
+    "tools": [
+      {
+        "name": "send_discord_message",
+        "title": "Send Discord message",
+        "description": "Send a message to a Discord channel. Caller supplies their own Discord token (bot or user) and channel ID. Server does not store the token.",
+        "annotations": {
+          "readOnlyHint": false,
+          "openWorldHint": true
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "token": {
+              "type": "string",
+              "minLength": 10,
+              "description": "Discord token. Bot token or user token."
+            },
+            "is_bot": {
+              "type": "boolean",
+              "description": "True if the token is a bot token, false for user token."
+            },
+            "channel_id": {
+              "type": "string",
+              "pattern": "^\\d{5,25}$",
+              "description": "Discord channel ID (numeric)."
+            },
+            "message": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000,
+              "description": "Message content, max 2000 chars."
+            }
+          },
+          "required": [
+            "token",
+            "is_bot",
+            "channel_id",
+            "message"
+          ]
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "list_discord_guilds",
+        "title": "List Discord guilds",
+        "description": "List the guilds (servers) the given Discord token has access to.",
+        "annotations": {
+          "readOnlyHint": true,
+          "openWorldHint": true
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "token": {
+              "type": "string",
+              "minLength": 10,
+              "description": "Discord token (bot or user)."
+            },
+            "is_bot": {
+              "type": "boolean",
+              "description": "True for bot token, false for user token."
+            }
+          },
+          "required": [
+            "token",
+            "is_bot"
+          ]
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "list_guild_channels",
+        "title": "List guild channels",
+        "description": "List text channels in a Discord guild.",
+        "annotations": {
+          "readOnlyHint": true,
+          "openWorldHint": true
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "token": {
+              "type": "string",
+              "minLength": 10
+            },
+            "is_bot": {
+              "type": "boolean"
+            },
+            "guild_id": {
+              "type": "string",
+              "pattern": "^\\d{5,25}$"
+            }
+          },
+          "required": [
+            "token",
+            "is_bot",
+            "guild_id"
+          ]
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "fetch_custom_emojis",
+        "title": "Fetch custom emojis",
+        "description": "Fetch all custom emojis from every guild the token can see. Returns a name->markup map usable in Discord messages.",
+        "annotations": {
+          "readOnlyHint": true,
+          "openWorldHint": true
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "token": {
+              "type": "string",
+              "minLength": 10
+            },
+            "is_bot": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "token",
+            "is_bot"
+          ]
+        },
+        "outputSchema": null
+      }
+    ]
+  }
+}
