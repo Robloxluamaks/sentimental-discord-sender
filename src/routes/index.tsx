@@ -72,6 +72,102 @@ function Index() {
   const [log, setLog] = useState<string[]>([]);
   const [stats, setStats] = useState({ sent: 0, failed: 0 });
 
+  // ── CONFIG SYSTEM ─────────────────────────────────────────────
+  // Saves named profiles to localStorage. Token is opt-in per save.
+  const [profiles, setProfiles] = useState<Record<string, StoredConfig>>({});
+  const [profileName, setProfileName] = useState("");
+  const [selectedProfile, setSelectedProfile] = useState("");
+  const [includeToken, setIncludeToken] = useState(false);
+  const hydratedRef = useRef(false);
+
+  // Load registry + last session on mount.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(PROFILES_KEY);
+      if (raw) setProfiles(JSON.parse(raw));
+      const last = localStorage.getItem(SESSION_KEY);
+      if (last) applyConfig(JSON.parse(last));
+    } catch {}
+    hydratedRef.current = true;
+  }, []);
+
+  // Autosave current working session (never includes token).
+  useEffect(() => {
+    if (!hydratedRef.current) return;
+    try {
+      const snap: StoredConfig = { isBot, stealth, targets, savedToken: null };
+      localStorage.setItem(SESSION_KEY, JSON.stringify(snap));
+    } catch {}
+  }, [isBot, stealth, targets]);
+
+  const applyConfig = (c: StoredConfig) => {
+    if (typeof c.isBot === "boolean") setIsBot(c.isBot);
+    if (c.stealth) setStealth(c.stealth);
+    if (Array.isArray(c.targets) && c.targets.length) {
+      setTargets(c.targets.map((t) => ({ ...newTarget(), ...t, id: Math.random().toString(36).slice(2, 9) })));
+    }
+    if (typeof c.savedToken === "string" && c.savedToken) setToken(c.savedToken);
+  };
+
+  const persistProfiles = (next: Record<string, StoredConfig>) => {
+    setProfiles(next);
+    try { localStorage.setItem(PROFILES_KEY, JSON.stringify(next)); } catch {}
+  };
+
+  const onSaveProfile = () => {
+    const name = profileName.trim();
+    if (!name) { append("✗ profile name required"); return; }
+    const cfg: StoredConfig = {
+      isBot, stealth, targets,
+      savedToken: includeToken && token ? token : null,
+    };
+    persistProfiles({ ...profiles, [name]: cfg });
+    setSelectedProfile(name);
+    append(`✓ saved profile "${name}"${includeToken ? " (with token)" : ""}`);
+  };
+
+  const onLoadProfile = () => {
+    const cfg = profiles[selectedProfile];
+    if (!cfg) { append("✗ no profile selected"); return; }
+    applyConfig(cfg);
+    append(`✓ loaded profile "${selectedProfile}"`);
+  };
+
+  const onDeleteProfile = () => {
+    if (!selectedProfile || !profiles[selectedProfile]) return;
+    const next = { ...profiles };
+    delete next[selectedProfile];
+    persistProfiles(next);
+    append(`■ deleted profile "${selectedProfile}"`);
+    setSelectedProfile("");
+  };
+
+  const onExportProfiles = () => {
+    const blob = new Blob([JSON.stringify(profiles, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `ghost-send-profiles-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    append(`⇡ exported ${Object.keys(profiles).length} profile(s)`);
+  };
+
+  const onImportProfiles = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    file.text().then((txt) => {
+      try {
+        const parsed = JSON.parse(txt) as Record<string, StoredConfig>;
+        persistProfiles({ ...profiles, ...parsed });
+        append(`⇣ imported ${Object.keys(parsed).length} profile(s)`);
+      } catch {
+        append("✗ invalid config file");
+      }
+    });
+    e.target.value = "";
+  };
+
   const wait = async (ms: number) => {
     await new Promise<void>((resolve) => {
       const t = setTimeout(() => {
