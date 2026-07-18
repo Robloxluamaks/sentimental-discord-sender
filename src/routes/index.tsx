@@ -57,6 +57,15 @@ function humanTypingMs(text: string) {
   return Math.min(14000, Math.round(base + (Math.random() * 2 - 1) * variance));
 }
 
+type StoredConfig = {
+  isBot: boolean;
+  stealth: StealthLevel;
+  targets: Target[];
+  savedToken: string | null;
+};
+const PROFILES_KEY = "ghost-send:profiles";
+const SESSION_KEY = "ghost-send:session";
+
 function Index() {
   const send = useServerFn(sendDiscordMessage);
   const loadEmojis = useServerFn(fetchEmojiMap);
@@ -71,6 +80,102 @@ function Index() {
   const waitAbortersRef = useRef<Set<() => void>>(new Set());
   const [log, setLog] = useState<string[]>([]);
   const [stats, setStats] = useState({ sent: 0, failed: 0 });
+
+  // ── CONFIG SYSTEM ─────────────────────────────────────────────
+  // Saves named profiles to localStorage. Token is opt-in per save.
+  const [profiles, setProfiles] = useState<Record<string, StoredConfig>>({});
+  const [profileName, setProfileName] = useState("");
+  const [selectedProfile, setSelectedProfile] = useState("");
+  const [includeToken, setIncludeToken] = useState(false);
+  const hydratedRef = useRef(false);
+
+  // Load registry + last session on mount.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(PROFILES_KEY);
+      if (raw) setProfiles(JSON.parse(raw));
+      const last = localStorage.getItem(SESSION_KEY);
+      if (last) applyConfig(JSON.parse(last));
+    } catch {}
+    hydratedRef.current = true;
+  }, []);
+
+  // Autosave current working session (never includes token).
+  useEffect(() => {
+    if (!hydratedRef.current) return;
+    try {
+      const snap: StoredConfig = { isBot, stealth, targets, savedToken: null };
+      localStorage.setItem(SESSION_KEY, JSON.stringify(snap));
+    } catch {}
+  }, [isBot, stealth, targets]);
+
+  const applyConfig = (c: StoredConfig) => {
+    if (typeof c.isBot === "boolean") setIsBot(c.isBot);
+    if (c.stealth) setStealth(c.stealth);
+    if (Array.isArray(c.targets) && c.targets.length) {
+      setTargets(c.targets.map((t: Target) => ({ ...newTarget(), ...t, id: Math.random().toString(36).slice(2, 9) })));
+    }
+    if (typeof c.savedToken === "string" && c.savedToken) setToken(c.savedToken);
+  };
+
+  const persistProfiles = (next: Record<string, StoredConfig>) => {
+    setProfiles(next);
+    try { localStorage.setItem(PROFILES_KEY, JSON.stringify(next)); } catch {}
+  };
+
+  const onSaveProfile = () => {
+    const name = profileName.trim();
+    if (!name) { append("✗ profile name required"); return; }
+    const cfg: StoredConfig = {
+      isBot, stealth, targets,
+      savedToken: includeToken && token ? token : null,
+    };
+    persistProfiles({ ...profiles, [name]: cfg });
+    setSelectedProfile(name);
+    append(`✓ saved profile "${name}"${includeToken ? " (with token)" : ""}`);
+  };
+
+  const onLoadProfile = () => {
+    const cfg = profiles[selectedProfile];
+    if (!cfg) { append("✗ no profile selected"); return; }
+    applyConfig(cfg);
+    append(`✓ loaded profile "${selectedProfile}"`);
+  };
+
+  const onDeleteProfile = () => {
+    if (!selectedProfile || !profiles[selectedProfile]) return;
+    const next = { ...profiles };
+    delete next[selectedProfile];
+    persistProfiles(next);
+    append(`■ deleted profile "${selectedProfile}"`);
+    setSelectedProfile("");
+  };
+
+  const onExportProfiles = () => {
+    const blob = new Blob([JSON.stringify(profiles, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `ghost-send-profiles-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    append(`⇡ exported ${Object.keys(profiles).length} profile(s)`);
+  };
+
+  const onImportProfiles = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    file.text().then((txt) => {
+      try {
+        const parsed = JSON.parse(txt) as Record<string, StoredConfig>;
+        persistProfiles({ ...profiles, ...parsed });
+        append(`⇣ imported ${Object.keys(parsed).length} profile(s)`);
+      } catch {
+        append("✗ invalid config file");
+      }
+    });
+    e.target.value = "";
+  };
 
   const wait = async (ms: number) => {
     await new Promise<void>((resolve) => {
@@ -220,6 +325,92 @@ function Index() {
         <div className="mt-10 grid grid-cols-1 gap-6 lg:grid-cols-[1.2fr_1fr]">
           {/* LEFT COLUMN */}
           <form onSubmit={onSubmit} className="space-y-6">
+            {/* CONFIG PANEL */}
+            <Panel
+              label={`00 // config [${Object.keys(profiles).length}]`}
+              action={
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={onExportProfiles}
+                    disabled={Object.keys(profiles).length === 0}
+                    className="rounded-sm border border-accent/40 bg-accent/10 px-3 py-1 font-mono text-[10px] uppercase tracking-wider text-accent transition-colors hover:bg-accent/20 disabled:opacity-40"
+                  >
+                    ⇡ export
+                  </button>
+                  <label className="cursor-pointer rounded-sm border border-accent/40 bg-accent/10 px-3 py-1 font-mono text-[10px] uppercase tracking-wider text-accent transition-colors hover:bg-accent/20">
+                    ⇣ import
+                    <input type="file" accept="application/json" onChange={onImportProfiles} className="hidden" />
+                  </label>
+                </div>
+              }
+            >
+              <p className="mb-3 font-mono text-[10px] leading-relaxed text-muted-foreground">
+                save campaign lists + stealth settings as named profiles. current session auto-saves locally (token excluded).
+              </p>
+              <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto]">
+                <input
+                  value={profileName}
+                  onChange={(e) => setProfileName(e.target.value)}
+                  placeholder="new profile name"
+                  className="rounded-sm border border-border bg-input px-2 py-1.5 font-mono text-xs text-foreground outline-none focus:border-primary"
+                />
+                <label className="flex items-center gap-2 rounded-sm border border-border bg-input px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                  <input
+                    type="checkbox"
+                    checked={includeToken}
+                    onChange={(e) => setIncludeToken(e.target.checked)}
+                    className="accent-primary"
+                  />
+                  incl. token
+                </label>
+                <button
+                  type="button"
+                  onClick={onSaveProfile}
+                  className="rounded-sm border border-primary/40 bg-primary/10 px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider text-primary transition-colors hover:bg-primary/20"
+                >
+                  ▤ save
+                </button>
+              </div>
+              {Object.keys(profiles).length > 0 && (
+                <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto_auto]">
+                  <select
+                    value={selectedProfile}
+                    onChange={(e) => setSelectedProfile(e.target.value)}
+                    className="rounded-sm border border-border bg-input px-2 py-1.5 font-mono text-xs text-foreground outline-none focus:border-primary"
+                  >
+                    <option value="">— select profile —</option>
+                    {Object.keys(profiles).map((n) => (
+                      <option key={n} value={n}>
+                        {n}{profiles[n].savedToken ? " ⚿" : ""} · {profiles[n].targets.length} target(s)
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={onLoadProfile}
+                    disabled={!selectedProfile}
+                    className="rounded-sm border border-primary/40 bg-primary/10 px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider text-primary transition-colors hover:bg-primary/20 disabled:opacity-40"
+                  >
+                    ↻ load
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onDeleteProfile}
+                    disabled={!selectedProfile}
+                    className="rounded-sm border border-destructive/40 bg-destructive/10 px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider text-destructive transition-colors hover:bg-destructive/20 disabled:opacity-40"
+                  >
+                    ✕ delete
+                  </button>
+                </div>
+              )}
+              {includeToken && (
+                <p className="mt-2 font-mono text-[10px] leading-relaxed text-warn">
+                  ⚠ token will be stored in plain text in your browser's localStorage.
+                </p>
+              )}
+            </Panel>
+
             {/* AUTH PANEL */}
             <Panel label="01 // auth">
               <div className="flex gap-2">
