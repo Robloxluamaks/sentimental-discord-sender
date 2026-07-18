@@ -113,7 +113,7 @@ function Index() {
     if (typeof c.isBot === "boolean") setIsBot(c.isBot);
     if (c.stealth) setStealth(c.stealth);
     if (Array.isArray(c.targets) && c.targets.length) {
-      setTargets(c.targets.map((t) => ({ ...newTarget(), ...t, id: Math.random().toString(36).slice(2, 9) })));
+      setTargets(c.targets.map((t: Target) => ({ ...newTarget(), ...t, id: Math.random().toString(36).slice(2, 9) })));
     }
     if (typeof c.savedToken === "string" && c.savedToken) setToken(c.savedToken);
   };
