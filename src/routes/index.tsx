@@ -325,6 +325,92 @@ function Index() {
         <div className="mt-10 grid grid-cols-1 gap-6 lg:grid-cols-[1.2fr_1fr]">
           {/* LEFT COLUMN */}
           <form onSubmit={onSubmit} className="space-y-6">
+            {/* CONFIG PANEL */}
+            <Panel
+              label={`00 // config [${Object.keys(profiles).length}]`}
+              action={
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={onExportProfiles}
+                    disabled={Object.keys(profiles).length === 0}
+                    className="rounded-sm border border-accent/40 bg-accent/10 px-3 py-1 font-mono text-[10px] uppercase tracking-wider text-accent transition-colors hover:bg-accent/20 disabled:opacity-40"
+                  >
+                    ⇡ export
+                  </button>
+                  <label className="cursor-pointer rounded-sm border border-accent/40 bg-accent/10 px-3 py-1 font-mono text-[10px] uppercase tracking-wider text-accent transition-colors hover:bg-accent/20">
+                    ⇣ import
+                    <input type="file" accept="application/json" onChange={onImportProfiles} className="hidden" />
+                  </label>
+                </div>
+              }
+            >
+              <p className="mb-3 font-mono text-[10px] leading-relaxed text-muted-foreground">
+                save campaign lists + stealth settings as named profiles. current session auto-saves locally (token excluded).
+              </p>
+              <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto]">
+                <input
+                  value={profileName}
+                  onChange={(e) => setProfileName(e.target.value)}
+                  placeholder="new profile name"
+                  className="rounded-sm border border-border bg-input px-2 py-1.5 font-mono text-xs text-foreground outline-none focus:border-primary"
+                />
+                <label className="flex items-center gap-2 rounded-sm border border-border bg-input px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                  <input
+                    type="checkbox"
+                    checked={includeToken}
+                    onChange={(e) => setIncludeToken(e.target.checked)}
+                    className="accent-primary"
+                  />
+                  incl. token
+                </label>
+                <button
+                  type="button"
+                  onClick={onSaveProfile}
+                  className="rounded-sm border border-primary/40 bg-primary/10 px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider text-primary transition-colors hover:bg-primary/20"
+                >
+                  ▤ save
+                </button>
+              </div>
+              {Object.keys(profiles).length > 0 && (
+                <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto_auto]">
+                  <select
+                    value={selectedProfile}
+                    onChange={(e) => setSelectedProfile(e.target.value)}
+                    className="rounded-sm border border-border bg-input px-2 py-1.5 font-mono text-xs text-foreground outline-none focus:border-primary"
+                  >
+                    <option value="">— select profile —</option>
+                    {Object.keys(profiles).map((n) => (
+                      <option key={n} value={n}>
+                        {n}{profiles[n].savedToken ? " ⚿" : ""} · {profiles[n].targets.length} target(s)
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={onLoadProfile}
+                    disabled={!selectedProfile}
+                    className="rounded-sm border border-primary/40 bg-primary/10 px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider text-primary transition-colors hover:bg-primary/20 disabled:opacity-40"
+                  >
+                    ↻ load
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onDeleteProfile}
+                    disabled={!selectedProfile}
+                    className="rounded-sm border border-destructive/40 bg-destructive/10 px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider text-destructive transition-colors hover:bg-destructive/20 disabled:opacity-40"
+                  >
+                    ✕ delete
+                  </button>
+                </div>
+              )}
+              {includeToken && (
+                <p className="mt-2 font-mono text-[10px] leading-relaxed text-warn">
+                  ⚠ token will be stored in plain text in your browser's localStorage.
+                </p>
+              )}
+            </Panel>
+
             {/* AUTH PANEL */}
             <Panel label="01 // auth">
               <div className="flex gap-2">
