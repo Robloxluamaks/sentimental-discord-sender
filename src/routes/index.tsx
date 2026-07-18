@@ -57,6 +57,15 @@ function humanTypingMs(text: string) {
   return Math.min(14000, Math.round(base + (Math.random() * 2 - 1) * variance));
 }
 
+type StoredConfig = {
+  isBot: boolean;
+  stealth: StealthLevel;
+  targets: Target[];
+  savedToken: string | null;
+};
+const PROFILES_KEY = "ghost-send:profiles";
+const SESSION_KEY = "ghost-send:session";
+
 function Index() {
   const send = useServerFn(sendDiscordMessage);
   const loadEmojis = useServerFn(fetchEmojiMap);
