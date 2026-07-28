@@ -1,6 +1,5 @@
 import { defineTool } from "@lovable.dev/mcp-js";
 import { z } from "zod";
-import { accessKeyField, checkAccessKey } from "./_auth";
 
 export default defineTool({
   name: "fetch_custom_emojis",
@@ -8,14 +7,11 @@ export default defineTool({
   description:
     "Fetch all custom emojis from every guild the token can see. Returns a name->markup map usable in Discord messages.",
   inputSchema: {
-    ...accessKeyField,
     token: z.string().min(10),
     is_bot: z.boolean(),
   },
   annotations: { readOnlyHint: true, openWorldHint: true },
-  handler: async ({ access_key, token, is_bot }) => {
-    const gate = checkAccessKey(access_key);
-    if (gate) return gate;
+  handler: async ({ token, is_bot }) => {
     const auth = is_bot ? `Bot ${token}` : token;
     const gr = await fetch("https://discord.com/api/v10/users/@me/guilds", {
       headers: { Authorization: auth },
