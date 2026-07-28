@@ -1,16 +1,20 @@
 import { defineTool } from "@lovable.dev/mcp-js";
 import { z } from "zod";
+import { accessKeyField, checkAccessKey } from "./_auth";
 
 export default defineTool({
   name: "list_discord_guilds",
   title: "List Discord guilds",
   description: "List the guilds (servers) the given Discord token has access to.",
   inputSchema: {
+    ...accessKeyField,
     token: z.string().min(10).describe("Discord token (bot or user)."),
     is_bot: z.boolean().describe("True for bot token, false for user token."),
   },
   annotations: { readOnlyHint: true, openWorldHint: true },
-  handler: async ({ token, is_bot }) => {
+  handler: async ({ access_key, token, is_bot }) => {
+    const gate = checkAccessKey(access_key);
+    if (gate) return gate;
     const res = await fetch("https://discord.com/api/v10/users/@me/guilds", {
       headers: { Authorization: is_bot ? `Bot ${token}` : token },
     });
