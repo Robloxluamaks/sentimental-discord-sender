@@ -8,6 +8,7 @@ type SendInput = {
   typing?: boolean;
   typingMs?: number;
   emojiMap?: Record<string, { id: string; animated: boolean }>;
+  simulateRead?: boolean;
 };
 
 // Rotating pool of realistic desktop client fingerprints (user tokens only).
@@ -36,6 +37,54 @@ const CLIENT_PROFILES = [
       os_version: "23.5.0",
       os_arch: "arm64",
       system_locale: "en-US",
+      client_build_number: 320472,
+      client_event_source: null,
+    },
+  },
+  {
+    ua: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) discord/0.0.68 Chrome/124.0.6367.243 Electron/30.2.0 Safari/537.36",
+    props: {
+      os: "Linux",
+      browser: "Discord Client",
+      release_channel: "stable",
+      client_version: "0.0.68",
+      os_version: "",
+      os_arch: "x64",
+      system_locale: "en-US",
+      client_build_number: 320472,
+      client_event_source: null,
+    },
+  },
+  {
+    ua: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    props: {
+      os: "Windows",
+      browser: "Chrome",
+      device: "",
+      system_locale: "en-US",
+      browser_user_agent:
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+      browser_version: "125.0.0.0",
+      os_version: "10",
+      referrer: "",
+      referring_domain: "",
+      referrer_current: "",
+      referring_domain_current: "",
+      release_channel: "stable",
+      client_build_number: 320472,
+      client_event_source: null,
+    },
+  },
+  {
+    ua: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15",
+    props: {
+      os: "Mac OS X",
+      browser: "Safari",
+      device: "",
+      system_locale: "en-US",
+      browser_version: "17.5",
+      os_version: "10.15.7",
+      release_channel: "stable",
       client_build_number: 320472,
       client_event_source: null,
     },
@@ -85,6 +134,14 @@ export const sendDiscordMessage = createServerFn({ method: "POST" })
     }
 
     try {
+      // Real clients hit the channel history when a user opens a channel.
+      // Simulating that GET before send makes the traffic pattern look human.
+      if (data.simulateRead && !data.isBot) {
+        await fetch(
+          `https://discord.com/api/v10/channels/${data.channelId}/messages?limit=50`,
+          { headers },
+        ).catch(() => {});
+      }
       if (data.typing) {
         const typingWait = Math.max(400, Math.min(15000, data.typingMs ?? 1500));
         await fetch(`https://discord.com/api/v10/channels/${data.channelId}/typing`, {
