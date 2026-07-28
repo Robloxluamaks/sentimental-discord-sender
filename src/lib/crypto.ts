@@ -5,9 +5,9 @@ const enc = new TextEncoder();
 const dec = new TextDecoder();
 
 async function deriveKey(password: string, salt: Uint8Array): Promise<CryptoKey> {
-  const base = await crypto.subtle.importKey("raw", enc.encode(password), "PBKDF2", false, ["deriveKey"]);
+  const base = await crypto.subtle.importKey("raw", enc.encode(password) as BufferSource, "PBKDF2", false, ["deriveKey"]);
   return crypto.subtle.deriveKey(
-    { name: "PBKDF2", salt, iterations: 210_000, hash: "SHA-256" },
+    { name: "PBKDF2", salt: salt as BufferSource, iterations: 210_000, hash: "SHA-256" },
     base,
     { name: "AES-GCM", length: 256 },
     false,
@@ -38,7 +38,11 @@ export async function encryptJSON(data: unknown, password: string): Promise<Encr
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const key = await deriveKey(password, salt);
-  const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, enc.encode(JSON.stringify(data)));
+  const ct = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv: iv as BufferSource },
+    key,
+    enc.encode(JSON.stringify(data)) as BufferSource,
+  );
   return { v: 1, alg: "AES-GCM", salt: b64(salt), iv: b64(iv), ct: b64(ct) };
 }
 
@@ -46,6 +50,10 @@ export async function decryptJSON<T = unknown>(blob: EncryptedBlob, password: st
   const salt = ub64(blob.salt);
   const iv = ub64(blob.iv);
   const key = await deriveKey(password, salt);
-  const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ub64(blob.ct));
+  const pt = await crypto.subtle.decrypt(
+    { name: "AES-GCM", iv: iv as BufferSource },
+    key,
+    ub64(blob.ct) as BufferSource,
+  );
   return JSON.parse(dec.decode(pt)) as T;
 }
