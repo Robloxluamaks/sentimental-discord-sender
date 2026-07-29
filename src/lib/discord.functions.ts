@@ -4,43 +4,70 @@ type SendInput = {
   token: string;
   channelId: string;
   message: string;
-  isBot: boolean;
   typing?: boolean;
   typingMs?: number;
   emojiMap?: Record<string, { id: string; animated: boolean }>;
 };
 
-// Rotating pool of realistic desktop client fingerprints (user tokens only).
-const CLIENT_PROFILES = [
-  {
-    ua: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9042 Chrome/124.0.6367.243 Electron/30.2.0 Safari/537.36",
-    props: {
-      os: "Windows",
-      browser: "Discord Client",
-      release_channel: "stable",
-      client_version: "1.0.9042",
-      os_version: "10.0.19045",
-      os_arch: "x64",
-      system_locale: "en-US",
-      client_build_number: 320472,
-      client_event_source: null,
-    },
-  },
-  {
-    ua: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) discord/0.0.312 Chrome/124.0.6367.243 Electron/30.2.0 Safari/537.36",
-    props: {
-      os: "Mac OS X",
-      browser: "Discord Client",
-      release_channel: "stable",
-      client_version: "0.0.312",
-      os_version: "23.5.0",
-      os_arch: "arm64",
-      system_locale: "en-US",
-      client_build_number: 320472,
-      client_event_source: null,
-    },
-  },
-];
+type DiscordError = {
+  ok: false;
+  status: number;
+  error: string;
+  retryAfter?: number;
+  cloudflare?: boolean;
+};
+
+export type EmojiMap = Record<string, { id: string; animated: boolean; guild?: string }>;
+
+const DISCORD_API = "https://discord.com/api/v10";
+
+function botHeaders(token: string): Record<string, string> {
+  return {
+    Authorization: `Bot ${token}`,
+    "Content-Type": "application/json",
+    "User-Agent": "DiscordBot (https://lovable.dev, 1.0)",
+  };
+}
+
+function resolveCustomEmojis(message: string, emojiMap?: Record<string, { id: string; animated: boolean }>) {
+  if (!emojiMap || Object.keys(emojiMap).length === 0) return message;
+
+  return message.replace(/:([a-zA-Z0-9_]{2,32}):/g, (match, name: string) => {
+    const emoji = emojiMap[name];
+    if (!emoji) return match;
+    return `<${emoji.animated ? "a" : ""}:${name}:${emoji.id}>`;
+  });
+}
+
+async function parseDiscordFailure(res: Response, text: string): Promise<DiscordError> {
+  let retryAfter: number | undefined;
+  let error = text.slice(0, 500);
+
+  try {
+    const parsed = JSON.parse(text) as { message?: string; retry_after?: number; global?: boolean };
+    if (typeof parsed.retry_after === "number") retryAfter = parsed.retry_after;
+    if (parsed.message) error = parsed.message;
+  } catch {
+    const isCloudflare = /error code:\s*1015/i.test(text) || /cloudflare/i.test(text);
+    if (isCloudflare) {
+      const cfMatch = text.match(/error code:\s*(\d+)/i);
+      return {
+        ok: false,
+        status: 1015,
+        error: `Discord edge rate limit (${cfMatch?.[1] ?? "1015"}). Stop sending and wait before trying again.`,
+        retryAfter: 900,
+        cloudflare: true,
+      };
+    }
+  }
+
+  return {
+    ok: false,
+    status: res.status,
+    error,
+    retryAfter,
+  };
+}
 
 export const sendDiscordMessage = createServerFn({ method: "POST" })
   .inputValidator((data: SendInput) => {
@@ -50,142 +77,69 @@ export const sendDiscordMessage = createServerFn({ method: "POST" })
     return data;
   })
   .handler(async ({ data }) => {
-    // Resolve :name: tokens to Discord custom emoji markup <:name:id> / <a:name:id>.
-    // Skips tokens inside code blocks / inline code to avoid mangling snippets.
-    let content = data.message;
-    if (data.emojiMap && Object.keys(data.emojiMap).length > 0) {
-      content = content.replace(/:([a-zA-Z0-9_]{2,32}):/g, (m, name) => {
-        const e = data.emojiMap![name];
-        if (!e) return m;
-        return `<${e.animated ? "a" : ""}:${name}:${e.id}>`;
-      });
-    }
-
-    const auth = data.isBot ? `Bot ${data.token}` : data.token;
-    const headers: Record<string, string> = {
-      Authorization: auth,
-      "Content-Type": "application/json",
-    };
-    if (data.isBot) {
-      headers["User-Agent"] = "DiscordBot (https://lovable.dev, 1.0)";
-    } else {
-      // Rotate a realistic desktop client fingerprint per request.
-      const profile = CLIENT_PROFILES[Math.floor(Math.random() * CLIENT_PROFILES.length)];
-      headers["User-Agent"] = profile.ua;
-      headers["X-Super-Properties"] = Buffer.from(JSON.stringify(profile.props)).toString("base64");
-      headers["X-Discord-Locale"] = "en-US";
-      headers["X-Debug-Options"] = "bugReporterEnabled";
-      headers["Accept"] = "*/*";
-      headers["Accept-Language"] = "en-US,en;q=0.9";
-      headers["Sec-Fetch-Dest"] = "empty";
-      headers["Sec-Fetch-Mode"] = "cors";
-      headers["Sec-Fetch-Site"] = "same-origin";
-      headers["Origin"] = "https://discord.com";
-      headers["Referer"] = `https://discord.com/channels/@me/${data.channelId}`;
-    }
+    const headers = botHeaders(data.token);
+    const content = resolveCustomEmojis(data.message, data.emojiMap);
 
     try {
       if (data.typing) {
-        const typingWait = Math.max(400, Math.min(15000, data.typingMs ?? 1500));
-        await fetch(`https://discord.com/api/v10/channels/${data.channelId}/typing`, {
+        await fetch(`${DISCORD_API}/channels/${data.channelId}/typing`, {
           method: "POST",
           headers,
-        }).catch(() => {});
-        // Re-trigger typing every ~9s if the wait is long (matches real client behavior).
-        const start = Date.now();
-        while (Date.now() - start < typingWait) {
-          const chunk = Math.min(9000, typingWait - (Date.now() - start));
-          await new Promise((r) => setTimeout(r, chunk));
-          if (Date.now() - start < typingWait) {
-            await fetch(`https://discord.com/api/v10/channels/${data.channelId}/typing`, {
-              method: "POST",
-              headers,
-            }).catch(() => {});
-          }
-        }
+        }).catch(() => undefined);
+
+        const typingWait = Math.max(400, Math.min(8000, data.typingMs ?? 1200));
+        await new Promise((resolve) => setTimeout(resolve, typingWait));
       }
 
-      const body: Record<string, unknown> = {
-        content,
-        tts: false,
-        flags: 0,
-      };
-      // Discord clients send a nonce per message; matches real client traffic.
-      if (!data.isBot) body.nonce = String(Date.now() * 1000 + Math.floor(Math.random() * 1000));
-      const res = await fetch(`https://discord.com/api/v10/channels/${data.channelId}/messages`, {
+      const res = await fetch(`${DISCORD_API}/channels/${data.channelId}/messages`, {
         method: "POST",
         headers,
-        body: JSON.stringify(body),
+        body: JSON.stringify({ content, tts: false }),
       });
       const text = await res.text();
-      if (!res.ok) {
-        let retryAfter: number | undefined;
-        let cloudflare = false;
-        try {
-          const j = JSON.parse(text);
-          if (typeof j.retry_after === "number") retryAfter = j.retry_after;
-        } catch {
-          // Non-JSON response = Cloudflare edge block (error 1015 = rate limited).
-          if (/error code:\s*1015/i.test(text) || /cloudflare/i.test(text)) {
-            cloudflare = true;
-          }
-        }
-        const cfMatch = text.match(/error code:\s*(\d+)/i);
-        const errMsg = cloudflare
-          ? `Cloudflare block (error ${cfMatch?.[1] ?? "1015"}) — IP rate limited by Discord edge. Slow down significantly.`
-          : text.slice(0, 500);
-        return {
-          ok: false as const,
-          status: cloudflare ? 1015 : res.status,
-          error: errMsg,
-          retryAfter: cloudflare ? 300 : retryAfter,
-          cloudflare,
-        };
-      }
+
+      if (!res.ok) return parseDiscordFailure(res, text);
       return { ok: true as const, status: res.status };
     } catch (err) {
       return { ok: false as const, status: 0, error: err instanceof Error ? err.message : String(err) };
     }
   });
 
-type EmojiFetchInput = { token: string; isBot: boolean };
-export type EmojiMap = Record<string, { id: string; animated: boolean; guild?: string }>;
-
-// Pulls all custom emojis from every guild the token has access to.
-// Requires Nitro to use cross-guild emojis when sending with a user token.
 export const fetchEmojiMap = createServerFn({ method: "POST" })
-  .inputValidator((data: EmojiFetchInput) => {
+  .inputValidator((data: { token: string }) => {
     if (!data.token) throw new Error("Missing token");
     return data;
   })
   .handler(async ({ data }) => {
-    const auth = data.isBot ? `Bot ${data.token}` : data.token;
-    const headers: Record<string, string> = {
-      Authorization: auth,
-      "User-Agent": data.isBot
-        ? "DiscordBot (https://lovable.dev, 1.0)"
-        : "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 discord/1.0.9042 Chrome/124.0.6367.243 Electron/30.2.0 Safari/537.36",
-    };
+    const headers = botHeaders(data.token);
+    const guildsRes = await fetch(`${DISCORD_API}/users/@me/guilds`, { headers });
+    const guildsText = await guildsRes.text();
 
-    const gr = await fetch("https://discord.com/api/v10/users/@me/guilds", { headers });
-    if (!gr.ok) {
-      return { ok: false as const, status: gr.status, error: (await gr.text()).slice(0, 300) };
-    }
-    const guilds = (await gr.json()) as Array<{ id: string; name: string }>;
+    if (!guildsRes.ok) return parseDiscordFailure(guildsRes, guildsText);
+
+    const guilds = JSON.parse(guildsText) as Array<{ id: string; name: string }>;
     const map: EmojiMap = {};
-    // Sequential with tiny gaps to avoid rate limits.
-    for (const g of guilds) {
-      const er = await fetch(`https://discord.com/api/v10/guilds/${g.id}/emojis`, { headers });
-      if (!er.ok) {
-        await new Promise((r) => setTimeout(r, 250));
+
+    for (const guild of guilds.slice(0, 50)) {
+      const emojisRes = await fetch(`${DISCORD_API}/guilds/${guild.id}/emojis`, { headers });
+      const emojisText = await emojisRes.text();
+
+      if (!emojisRes.ok) {
+        if (emojisRes.status === 429) {
+          const failure = await parseDiscordFailure(emojisRes, emojisText);
+          await new Promise((resolve) => setTimeout(resolve, Math.max(1000, (failure.retryAfter ?? 1) * 1000)));
+        }
         continue;
       }
-      const emojis = (await er.json()) as Array<{ id: string; name: string; animated: boolean }>;
-      for (const e of emojis) {
-        if (!e.id || !e.name) continue;
-        if (!map[e.name]) map[e.name] = { id: e.id, animated: !!e.animated, guild: g.name };
+
+      const emojis = JSON.parse(emojisText) as Array<{ id: string; name: string; animated: boolean }>;
+      for (const emoji of emojis) {
+        if (!emoji.id || !emoji.name || map[emoji.name]) continue;
+        map[emoji.name] = { id: emoji.id, animated: Boolean(emoji.animated), guild: guild.name };
       }
-      await new Promise((r) => setTimeout(r, 200));
+
+      await new Promise((resolve) => setTimeout(resolve, 750));
     }
+
     return { ok: true as const, map, guildCount: guilds.length, emojiCount: Object.keys(map).length };
   });
