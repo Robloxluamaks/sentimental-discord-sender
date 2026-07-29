@@ -254,7 +254,12 @@ function Index() {
         } else {
           setStats((s) => ({ ...s, failed: s.failed + 1 }));
           append(`✗ [${tag}] ${res.status}: ${res.error.slice(0, 80)}`);
-          if (res.status === 429) {
+          if (res.status === 1015) {
+            // Cloudflare edge rate limit — much harsher than a normal 429.
+            const backoff = Math.max(300000, Math.round((res.retryAfter ?? 300) * 1000));
+            append(`⏸ [${tag}] cloudflare 1015 · cooling ${(backoff / 1000).toFixed(0)}s (long backoff)`);
+            await wait(backoff);
+          } else if (res.status === 429) {
             const backoff = Math.max(30000, Math.round((res.retryAfter ?? 30) * 1000));
             append(`⏸ [${tag}] rate limit · cooling ${(backoff / 1000).toFixed(0)}s`);
             await wait(backoff);
