@@ -7,9 +7,9 @@ export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
       { title: "Discord Auto Sender — Campaigns" },
-      { name: "description", content: "Send Discord messages to multiple channels with anti-detection: random delays, typing indicators, shuffling." },
+      { name: "description", content: "Send Discord bot messages to multiple channels with campaign profiles, cooldowns, and custom emoji support." },
       { property: "og:title", content: "Discord Auto Sender — Campaigns" },
-      { property: "og:description", content: "Multi-channel Discord message sender with anti-detection." },
+      { property: "og:description", content: "Multi-channel Discord bot sender with campaign profiles and custom emoji support." },
     ],
   }),
   component: Index,
@@ -44,7 +44,7 @@ const STEALTH: Record<
   StealthLevel,
   { label: string; blurb: string; typing: boolean; humanTyping: boolean; jitterPct: number }
 > = {
-  low:      { label: "Fast",        blurb: "Sends quickly with minimal delay. Higher risk on user tokens.",           typing: false, humanTyping: false, jitterPct: 8 },
+  low:      { label: "Fast",        blurb: "Sends quickly with minimal extra spacing. Watch Discord rate-limit responses.", typing: false, humanTyping: false, jitterPct: 8 },
   balanced: { label: "Balanced",    blurb: "Typing indicator + up to +12% extra delay. Good default.",                 typing: true,  humanTyping: false, jitterPct: 12 },
   max:      { label: "Max Stealth", blurb: "Realistic typing time based on message length + up to +15% extra delay.", typing: true,  humanTyping: true,  jitterPct: 15 },
 };
@@ -440,7 +440,7 @@ function Index() {
                     onClick={onLoadEmojis}
                     disabled={emojisLoading}
                     className="rounded-sm border border-accent/40 bg-accent/10 px-3 py-1 font-mono text-[10px] uppercase tracking-wider text-accent transition-colors hover:bg-accent/20 disabled:opacity-50"
-                    title="Fetch custom emojis from all your servers (Nitro needed for cross-server use with a user token)"
+                    title="Fetch custom emojis from servers your bot can access"
                   >
                     {emojisLoading
                       ? "⇣ scanning..."
