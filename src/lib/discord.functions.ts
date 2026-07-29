@@ -120,11 +120,27 @@ export const sendDiscordMessage = createServerFn({ method: "POST" })
       const text = await res.text();
       if (!res.ok) {
         let retryAfter: number | undefined;
+        let cloudflare = false;
         try {
           const j = JSON.parse(text);
           if (typeof j.retry_after === "number") retryAfter = j.retry_after;
-        } catch {}
-        return { ok: false as const, status: res.status, error: text.slice(0, 500), retryAfter };
+        } catch {
+          // Non-JSON response = Cloudflare edge block (error 1015 = rate limited).
+          if (/error code:\s*1015/i.test(text) || /cloudflare/i.test(text)) {
+            cloudflare = true;
+          }
+        }
+        const cfMatch = text.match(/error code:\s*(\d+)/i);
+        const errMsg = cloudflare
+          ? `Cloudflare block (error ${cfMatch?.[1] ?? "1015"}) — IP rate limited by Discord edge. Slow down significantly.`
+          : text.slice(0, 500);
+        return {
+          ok: false as const,
+          status: cloudflare ? 1015 : res.status,
+          error: errMsg,
+          retryAfter: cloudflare ? 300 : retryAfter,
+          cloudflare,
+        };
       }
       return { ok: true as const, status: res.status };
     } catch (err) {
