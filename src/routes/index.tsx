@@ -58,7 +58,6 @@ function humanTypingMs(text: string) {
 }
 
 type StoredConfig = {
-  isBot: boolean;
   stealth: StealthLevel;
   targets: Target[];
   savedToken: string | null;
@@ -70,7 +69,6 @@ function Index() {
   const send = useServerFn(sendDiscordMessage);
   const loadEmojis = useServerFn(fetchEmojiMap);
   const [token, setToken] = useState("");
-  const [isBot, setIsBot] = useState(true);
   const [targets, setTargets] = useState<Target[]>([newTarget()]);
   const [stealth, setStealth] = useState<StealthLevel>("balanced");
   const [emojiMap, setEmojiMap] = useState<EmojiMap>({});
@@ -104,13 +102,12 @@ function Index() {
   useEffect(() => {
     if (!hydratedRef.current) return;
     try {
-      const snap: StoredConfig = { isBot, stealth, targets, savedToken: null };
+      const snap: StoredConfig = { stealth, targets, savedToken: null };
       localStorage.setItem(SESSION_KEY, JSON.stringify(snap));
     } catch {}
-  }, [isBot, stealth, targets]);
+  }, [stealth, targets]);
 
   const applyConfig = (c: StoredConfig) => {
-    if (typeof c.isBot === "boolean") setIsBot(c.isBot);
     if (c.stealth) setStealth(c.stealth);
     if (Array.isArray(c.targets) && c.targets.length) {
       setTargets(c.targets.map((t: Target) => ({ ...newTarget(), ...t, id: Math.random().toString(36).slice(2, 9) })));
@@ -127,7 +124,7 @@ function Index() {
     const name = profileName.trim();
     if (!name) { append("✗ profile name required"); return; }
     const cfg: StoredConfig = {
-      isBot, stealth, targets,
+      stealth, targets,
       savedToken: includeToken && token ? token : null,
     };
     persistProfiles({ ...profiles, [name]: cfg });
@@ -215,7 +212,7 @@ function Index() {
     setEmojisLoading(true);
     append("⇣ scanning guilds for custom emojis...");
     try {
-      const res = await loadEmojis({ data: { token, isBot } });
+      const res = await loadEmojis({ data: { token } });
       if (res.ok) {
         setEmojiMap(res.map);
         append(`✓ loaded ${res.emojiCount} emoji(s) from ${res.guildCount} guild(s)`);
@@ -242,7 +239,6 @@ function Index() {
             token,
             channelId: t.channelId,
             message: t.message,
-            isBot,
             typing: preset.typing,
             typingMs: tMs,
             emojiMap: Object.keys(emojiMap).length ? emojiMap : undefined,
@@ -316,8 +312,8 @@ function Index() {
             <h1 className="mt-2 font-display text-5xl font-bold tracking-tight text-glow">
               GHOST<span className="text-primary">.</span>SEND
             </h1>
-            <p className="mt-2 max-w-lg font-mono text-xs text-muted-foreground">
-              multi-channel discord dispatcher · human-behavior emulation · rotating client fingerprints
+              <p className="mt-2 max-w-lg font-mono text-xs text-muted-foreground">
+              bot-token campaign console · rate-limit aware sending · custom emoji resolver
             </p>
           </div>
           <div className="flex items-center gap-3 font-mono text-xs">
@@ -418,21 +414,20 @@ function Index() {
 
             {/* AUTH PANEL */}
             <Panel label="01 // auth">
-              <div className="flex gap-2">
-                <TokenTypeButton active={isBot} onClick={() => setIsBot(true)} label="BOT" hint="recommended" />
-                <TokenTypeButton active={!isBot} onClick={() => setIsBot(false)} label="USER" hint="ToS risk" />
-              </div>
               <label className="mt-4 block font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
-                token
+                bot token
               </label>
               <input
                 type="password"
                 value={token}
                 onChange={(e) => setToken(e.target.value)}
                 className="mt-1 w-full rounded-md border border-border bg-input px-3 py-2 font-mono text-sm text-foreground outline-none transition-colors focus:border-primary focus:shadow-[0_0_0_1px_var(--color-primary)]"
-                placeholder="•••••••••••••••••••"
+                placeholder="Discord bot token"
                 required
               />
+              <p className="mt-2 font-mono text-[10px] leading-relaxed text-muted-foreground">
+                Only official bot tokens are supported. If Discord returns 1015, stop all sends and wait before retrying.
+              </p>
             </Panel>
 
             {/* TARGETS PANEL */}
@@ -540,7 +535,7 @@ function Index() {
             {/* STEALTH — plain-english preset */}
             <Panel label="03 // stealth level">
               <p className="mb-3 font-mono text-[10px] leading-relaxed text-muted-foreground">
-                controls how human-like each send looks. applies to all campaigns.
+                controls extra spacing and typing indicators. applies to all campaigns.
               </p>
               <div className="grid gap-2 sm:grid-cols-3">
                 {(Object.keys(STEALTH) as StealthLevel[]).map((k) => {
@@ -621,7 +616,7 @@ function Index() {
               </ul>
             </div>
             <p className="mt-4 rounded-md border border-warn/30 bg-warn/5 p-3 font-mono text-[10px] leading-relaxed text-warn">
-              ⚠ DISCLAIMER: no anti-detect is 100% safe. discord tracks IP, device fingerprint, and user reports. user tokens violate ToS. prefer bot tokens & keep volume low.
+              ⚠ Discord rate limits are enforced server-side. This app will not mask IPs or bypass detection; keep volume low and use official bot tokens only.
             </p>
           </aside>
         </div>
@@ -704,33 +699,6 @@ function Toggle({
     >
       <span>{label}</span>
       <span className={`h-2 w-2 rounded-full ${checked ? "bg-primary shadow-[0_0_8px_var(--color-primary)]" : "bg-muted-foreground/40"}`} />
-    </button>
-  );
-}
-
-function TokenTypeButton({
-  active,
-  onClick,
-  label,
-  hint,
-}: {
-  active: boolean;
-  onClick: () => void;
-  label: string;
-  hint: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`flex-1 rounded-md border px-4 py-3 text-left transition-all ${
-        active
-          ? "border-primary bg-primary/10 shadow-[0_0_20px_-8px_var(--color-primary)]"
-          : "border-border bg-input/50 hover:border-primary/40"
-      }`}
-    >
-      <div className={`font-mono text-sm font-bold ${active ? "text-primary" : "text-foreground"}`}>{label}</div>
-      <div className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{hint}</div>
     </button>
   );
 }
