@@ -6,13 +6,14 @@ export default defineTool({
   title: "List guild channels",
   description: "List text channels in a Discord guild.",
   inputSchema: {
-    token: z.string().min(10).describe("Discord bot token."),
+    token: z.string().min(10),
+    is_bot: z.boolean(),
     guild_id: z.string().regex(/^\d{5,25}$/),
   },
   annotations: { readOnlyHint: true, openWorldHint: true },
-  handler: async ({ token, guild_id }) => {
+  handler: async ({ token, is_bot, guild_id }) => {
     const res = await fetch(`https://discord.com/api/v10/guilds/${guild_id}/channels`, {
-      headers: { Authorization: `Bot ${token}` },
+      headers: { Authorization: is_bot ? `Bot ${token}` : token },
     });
     const text = await res.text();
     if (!res.ok) {

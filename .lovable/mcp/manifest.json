@@ -3,11 +3,7 @@
   "sdk_version": "0.23.0",
   "path": "/mcp",
   "auth": {
-    "type": "oauth",
-    "issuer": "https://ywtnkmoyyzknfuqtfkjk.supabase.co/auth/v1",
-    "accepted_audiences": [
-      "authenticated"
-    ]
+    "type": "none"
   },
   "mcp": {
     "server": {
@@ -19,7 +15,7 @@
       {
         "name": "send_discord_message",
         "title": "Send Discord message",
-        "description": "Send a message to a Discord channel using an official Discord bot token. Server does not store the token.",
+        "description": "Send a message to a Discord channel. Caller supplies their own Discord token (bot or user) and channel ID. Server does not store the token.",
         "annotations": {
           "readOnlyHint": false,
           "openWorldHint": true
@@ -31,7 +27,11 @@
             "token": {
               "type": "string",
               "minLength": 10,
-              "description": "Discord bot token."
+              "description": "Discord token. Bot token or user token."
+            },
+            "is_bot": {
+              "type": "boolean",
+              "description": "True if the token is a bot token, false for user token."
             },
             "channel_id": {
               "type": "string",
@@ -47,6 +47,7 @@
           },
           "required": [
             "token",
+            "is_bot",
             "channel_id",
             "message"
           ]
@@ -56,7 +57,7 @@
       {
         "name": "list_discord_guilds",
         "title": "List Discord guilds",
-        "description": "List the guilds (servers) the given Discord bot token has access to.",
+        "description": "List the guilds (servers) the given Discord token has access to.",
         "annotations": {
           "readOnlyHint": true,
           "openWorldHint": true
@@ -68,11 +69,16 @@
             "token": {
               "type": "string",
               "minLength": 10,
-              "description": "Discord bot token."
+              "description": "Discord token (bot or user)."
+            },
+            "is_bot": {
+              "type": "boolean",
+              "description": "True for bot token, false for user token."
             }
           },
           "required": [
-            "token"
+            "token",
+            "is_bot"
           ]
         },
         "outputSchema": null
@@ -91,8 +97,10 @@
           "properties": {
             "token": {
               "type": "string",
-              "minLength": 10,
-              "description": "Discord bot token."
+              "minLength": 10
+            },
+            "is_bot": {
+              "type": "boolean"
             },
             "guild_id": {
               "type": "string",
@@ -101,6 +109,7 @@
           },
           "required": [
             "token",
+            "is_bot",
             "guild_id"
           ]
         },
@@ -109,7 +118,7 @@
       {
         "name": "fetch_custom_emojis",
         "title": "Fetch custom emojis",
-        "description": "Fetch all custom emojis from every guild the bot token can see. Returns a name->markup map usable in Discord messages.",
+        "description": "Fetch all custom emojis from every guild the token can see. Returns a name->markup map usable in Discord messages.",
         "annotations": {
           "readOnlyHint": true,
           "openWorldHint": true
@@ -120,12 +129,15 @@
           "properties": {
             "token": {
               "type": "string",
-              "minLength": 10,
-              "description": "Discord bot token."
+              "minLength": 10
+            },
+            "is_bot": {
+              "type": "boolean"
             }
           },
           "required": [
-            "token"
+            "token",
+            "is_bot"
           ]
         },
         "outputSchema": null

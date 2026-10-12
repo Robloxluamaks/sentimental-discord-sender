@@ -4,14 +4,15 @@ import { z } from "zod";
 export default defineTool({
   name: "list_discord_guilds",
   title: "List Discord guilds",
-  description: "List the guilds (servers) the given Discord bot token has access to.",
+  description: "List the guilds (servers) the given Discord token has access to.",
   inputSchema: {
-    token: z.string().min(10).describe("Discord bot token."),
+    token: z.string().min(10).describe("Discord token (bot or user)."),
+    is_bot: z.boolean().describe("True for bot token, false for user token."),
   },
   annotations: { readOnlyHint: true, openWorldHint: true },
-  handler: async ({ token }) => {
+  handler: async ({ token, is_bot }) => {
     const res = await fetch("https://discord.com/api/v10/users/@me/guilds", {
-      headers: { Authorization: `Bot ${token}` },
+      headers: { Authorization: is_bot ? `Bot ${token}` : token },
     });
     const text = await res.text();
     if (!res.ok) {
