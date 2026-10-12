@@ -1,5 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
+import { CampaignPreview } from "@/components/campaign-preview";
+import { Layers, Eye, FolderOpen, Terminal, Trash2 } from "lucide-react";
 import { useServerFn } from "@tanstack/react-start";
 import { sendDiscordMessage, fetchEmojiMap, type EmojiMap } from "@/lib/discord.functions";
 
@@ -7,9 +11,11 @@ export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
       { title: "Discord Auto Sender — Campaigns" },
-      { name: "description", content: "Send Discord messages to multiple channels with anti-detection: random delays, typing indicators, shuffling." },
+      { name: "description", content: "Manage Discord campaigns, saved configurations and message previews in GHOST.SEND." },
       { property: "og:title", content: "Discord Auto Sender — Campaigns" },
-      { property: "og:description", content: "Multi-channel Discord message sender with anti-detection." },
+      { property: "og:description", content: "GHOST.SEND campaign management, message preview and session log." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
   component: Index,
@@ -69,6 +75,7 @@ const SESSION_KEY = "ghost-send:session";
 function Index() {
   const send = useServerFn(sendDiscordMessage);
   const loadEmojis = useServerFn(fetchEmojiMap);
+  const [activeTab, setActiveTab] = useState("campaigns");
   const [token, setToken] = useState("");
   const [isBot, setIsBot] = useState(true);
   const [targets, setTargets] = useState<Target[]>([newTarget()]);
@@ -317,7 +324,7 @@ function Index() {
               GHOST<span className="text-primary">.</span>SEND
             </h1>
             <p className="mt-2 max-w-lg font-mono text-xs text-muted-foreground">
-              multi-channel discord dispatcher · human-behavior emulation · rotating client fingerprints
+              kampanie discord · podgląd wiadomości · zapisane konfiguracje
             </p>
           </div>
           <div className="flex items-center gap-3 font-mono text-xs">
@@ -327,22 +334,28 @@ function Index() {
           </div>
         </header>
 
-        <div className="mt-10 grid grid-cols-1 gap-6 lg:grid-cols-[1.2fr_1fr]">
-          {/* LEFT COLUMN */}
-          <form onSubmit={onSubmit} className="space-y-6">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-8">
+          <TabsList aria-label="Widoki aplikacji" className="grid h-auto w-full grid-cols-2 gap-1 rounded-md border border-border bg-secondary/40 p-1 sm:grid-cols-4">
+            <TabsTrigger value="campaigns" className="gap-2 py-3"><Layers className="size-4" />Kampanie</TabsTrigger>
+            <TabsTrigger value="preview" className="gap-2 py-3"><Eye className="size-4" />Podgląd</TabsTrigger>
+            <TabsTrigger value="configs" className="gap-2 py-3"><FolderOpen className="size-4" />Konfiguracje</TabsTrigger>
+            <TabsTrigger value="logs" className="gap-2 py-3"><Terminal className="size-4" />Dziennik {log.length > 0 && <span className="font-mono text-xs text-muted-foreground">({log.length})</span>}</TabsTrigger>
+          </TabsList>
+          <form onSubmit={onSubmit} className="mt-6 space-y-6">
+            <TabsContent value="configs">
             {/* CONFIG PANEL */}
             <Panel
               label={`00 // config [${Object.keys(profiles).length}]`}
               action={
                 <div className="flex items-center gap-2">
-                  <button
+                  <Button variant="outline"
                     type="button"
                     onClick={onExportProfiles}
                     disabled={Object.keys(profiles).length === 0}
                     className="rounded-sm border border-accent/40 bg-accent/10 px-3 py-1 font-mono text-[10px] uppercase tracking-wider text-accent transition-colors hover:bg-accent/20 disabled:opacity-40"
                   >
                     ⇡ export
-                  </button>
+                  </Button>
                   <label className="cursor-pointer rounded-sm border border-accent/40 bg-accent/10 px-3 py-1 font-mono text-[10px] uppercase tracking-wider text-accent transition-colors hover:bg-accent/20">
                     ⇣ import
                     <input type="file" accept="application/json" onChange={onImportProfiles} className="hidden" />
@@ -369,13 +382,13 @@ function Index() {
                   />
                   incl. token
                 </label>
-                <button
+                <Button variant="outline"
                   type="button"
                   onClick={onSaveProfile}
                   className="rounded-sm border border-primary/40 bg-primary/10 px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider text-primary transition-colors hover:bg-primary/20"
                 >
                   ▤ save
-                </button>
+                </Button>
               </div>
               {Object.keys(profiles).length > 0 && (
                 <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto_auto]">
@@ -391,22 +404,22 @@ function Index() {
                       </option>
                     ))}
                   </select>
-                  <button
+                  <Button variant="outline"
                     type="button"
                     onClick={onLoadProfile}
                     disabled={!selectedProfile}
                     className="rounded-sm border border-primary/40 bg-primary/10 px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider text-primary transition-colors hover:bg-primary/20 disabled:opacity-40"
                   >
                     ↻ load
-                  </button>
-                  <button
+                  </Button>
+                  <Button variant="outline"
                     type="button"
                     onClick={onDeleteProfile}
                     disabled={!selectedProfile}
                     className="rounded-sm border border-destructive/40 bg-destructive/10 px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider text-destructive transition-colors hover:bg-destructive/20 disabled:opacity-40"
                   >
                     ✕ delete
-                  </button>
+                  </Button>
                 </div>
               )}
               {includeToken && (
@@ -416,6 +429,8 @@ function Index() {
               )}
             </Panel>
 
+            </TabsContent>
+            <TabsContent value="campaigns" className="space-y-6">
             {/* AUTH PANEL */}
             <Panel label="01 // auth">
               <div className="flex gap-2">
@@ -440,7 +455,7 @@ function Index() {
               label={`02 // campaigns [${targets.length}]`}
               action={
                 <div className="flex items-center gap-2">
-                  <button
+                  <Button variant="outline"
                     type="button"
                     onClick={onLoadEmojis}
                     disabled={emojisLoading}
@@ -452,14 +467,14 @@ function Index() {
                       : Object.keys(emojiMap).length > 0
                         ? `☺ ${Object.keys(emojiMap).length} emoji`
                         : "⇣ load emoji"}
-                  </button>
-                  <button
+                  </Button>
+                  <Button variant="outline"
                     type="button"
                     onClick={addTarget}
                     className="rounded-sm border border-primary/40 bg-primary/10 px-3 py-1 font-mono text-[10px] uppercase tracking-wider text-primary transition-colors hover:bg-primary/20"
                   >
                     + add campaign
-                  </button>
+                  </Button>
                 </div>
               }
             >
@@ -485,14 +500,14 @@ function Index() {
                           placeholder="campaign name"
                         />
                       </div>
-                      <button
+                      <Button variant="outline"
                         type="button"
                         onClick={() => removeTarget(t.id)}
                         disabled={targets.length === 1}
                         className="font-mono text-[10px] uppercase tracking-wider text-destructive opacity-0 transition-opacity hover:underline disabled:opacity-0 group-hover:opacity-100"
                       >
                         purge
-                      </button>
+                      </Button>
                     </div>
                     <label className="block font-mono text-[9px] uppercase tracking-wider text-muted-foreground">channel id</label>
                     <input
@@ -547,7 +562,7 @@ function Index() {
                   const p = STEALTH[k];
                   const active = stealth === k;
                   return (
-                    <button
+                    <Button variant="outline"
                       key={k}
                       type="button"
                       onClick={() => setStealth(k)}
@@ -563,7 +578,7 @@ function Index() {
                       <div className="mt-1 font-mono text-[10px] leading-snug text-muted-foreground">
                         {p.blurb}
                       </div>
-                    </button>
+                    </Button>
                   );
                 })}
               </div>
@@ -573,58 +588,45 @@ function Index() {
               </p>
             </Panel>
 
-            <div className="flex gap-2">
-              <button
+            </TabsContent>
+            <TabsContent value="preview"><CampaignPreview targets={targets} /></TabsContent>
+            <TabsContent value="logs">
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="text-lg font-semibold">Dziennik sesji</h2>
+                <Button type="button" variant="outline" size="sm" onClick={() => setLog([])} disabled={!log.length}><Trash2 />Wyczyść</Button>
+              </div>
+              <div className="overflow-hidden rounded-md border border-border bg-background/80">
+                <ul aria-live="polite" className="h-[420px] overflow-auto p-4 font-mono text-xs leading-relaxed">
+                  {log.length === 0 && <li className="text-muted-foreground">Brak zdarzeń w tej sesji.</li>}
+                  {log.map((line, index) => <li key={index} className={`${logColor(line)} break-words [overflow-wrap:anywhere]`}>{line}</li>)}
+                </ul>
+              </div>
+            </TabsContent>
+            <div className="flex gap-2 border-t border-border pt-5">
+              <Button variant="outline"
                 type="submit"
                 disabled={running}
                 className="group relative flex-1 overflow-hidden rounded-md border border-primary bg-primary/10 px-6 py-3 font-mono text-sm font-bold uppercase tracking-[0.2em] text-primary transition-all hover:bg-primary hover:text-primary-foreground disabled:opacity-50"
               >
                 <span className="relative z-10">{running ? "▮▮ running..." : "▶ start campaigns"}</span>
                 {!running && <div className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-primary/40 to-transparent transition-transform duration-1000 group-hover:translate-x-full" />}
-              </button>
+              </Button>
               {running && (
-                <button
+                <Button variant="outline"
                   type="button"
                   onClick={abortAll}
                   className="rounded-md border border-destructive bg-destructive/10 px-4 py-3 font-mono text-sm font-bold uppercase tracking-wider text-destructive hover:bg-destructive hover:text-destructive-foreground"
                 >
                   ■ abort
-                </button>
+                </Button>
               )}
             </div>
           </form>
 
-          {/* RIGHT COLUMN — TERMINAL */}
-          <aside className="lg:sticky lg:top-6 lg:self-start">
-            <div className="scanlines overflow-hidden rounded-md border border-border bg-background/80 shadow-[var(--shadow-panel)]">
-              <div className="flex items-center justify-between border-b border-border bg-secondary/60 px-3 py-2">
-                <div className="flex items-center gap-1.5">
-                  <span className="h-2.5 w-2.5 rounded-full bg-destructive/70" />
-                  <span className="h-2.5 w-2.5 rounded-full bg-warn/70" />
-                  <span className="h-2.5 w-2.5 rounded-full bg-primary/70" />
-                </div>
-                <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
-                  ~ /ghost/session.log
-                </span>
-              </div>
-              <ul className="h-[520px] overflow-auto p-4 font-mono text-[11px] leading-relaxed">
-                {log.length === 0 && (
-                  <li className="text-muted-foreground">
-                    <span className="text-primary">$</span> awaiting command<span className="animate-blink">_</span>
-                  </li>
-                )}
-                {log.map((line, i) => (
-                  <li key={i} className={logColor(line)}>
-                    {line}
-                  </li>
-                ))}
-              </ul>
-            </div>
-            <p className="mt-4 rounded-md border border-warn/30 bg-warn/5 p-3 font-mono text-[10px] leading-relaxed text-warn">
-              ⚠ DISCLAIMER: no anti-detect is 100% safe. discord tracks IP, device fingerprint, and user reports. user tokens violate ToS. prefer bot tokens & keep volume low.
-            </p>
-          </aside>
-        </div>
+          <p className="mt-4 font-mono text-[10px] leading-relaxed text-warn">
+            Tokeny użytkowników naruszają zasady Discorda. Korzystaj z oficjalnego bota; żaden tryb nie gwarantuje uniknięcia blokady.
+          </p>
+        </Tabs>
       </div>
     </div>
   );
@@ -693,7 +695,7 @@ function Toggle({
   onChange: (v: boolean) => void;
 }) {
   return (
-    <button
+    <Button variant="outline"
       type="button"
       onClick={() => onChange(!checked)}
       className={`flex items-center justify-between gap-2 rounded-sm border px-3 py-2 font-mono text-[10px] uppercase tracking-wider transition-colors ${
@@ -704,7 +706,7 @@ function Toggle({
     >
       <span>{label}</span>
       <span className={`h-2 w-2 rounded-full ${checked ? "bg-primary shadow-[0_0_8px_var(--color-primary)]" : "bg-muted-foreground/40"}`} />
-    </button>
+    </Button>
   );
 }
 
@@ -720,7 +722,7 @@ function TokenTypeButton({
   hint: string;
 }) {
   return (
-    <button
+    <Button variant="outline"
       type="button"
       onClick={onClick}
       className={`flex-1 rounded-md border px-4 py-3 text-left transition-all ${
@@ -731,7 +733,7 @@ function TokenTypeButton({
     >
       <div className={`font-mono text-sm font-bold ${active ? "text-primary" : "text-foreground"}`}>{label}</div>
       <div className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{hint}</div>
-    </button>
+    </Button>
   );
 }
 
